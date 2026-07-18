@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useSelector } from "react-redux";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
-import { axiosToastError } from "@/lib/utils";
+import { axiosToastError, displayPrice } from "@/lib/utils";
 import toast from "react-hot-toast";
 import { LoadingBlock } from "./shared";
 
@@ -32,16 +33,29 @@ const BALANCE_FIELDS = [
   ["liabilities", "Liabilities"],
 ];
 
+// Item 1: third element flags which marketing inputs are actually monetary —
+// ad/email counts (clicks, opens, sent) aren't amounts and shouldn't get a
+// currency symbol or conversion preview, only adSpend/adRevenue should.
 const MARKETING_FIELDS = [
-  ["adSpend", "Ad Spend"],
-  ["adClicks", "Ad Clicks"],
-  ["adRevenue", "Revenue from Ads"],
-  ["emailsSent", "Emails Sent"],
-  ["emailOpens", "Email Opens"],
-  ["emailClicks", "Email Clicks"],
+  ["adSpend", "Ad Spend", true],
+  ["adClicks", "Ad Clicks", false],
+  ["adRevenue", "Revenue from Ads", true],
+  ["emailsSent", "Emails Sent", false],
+  ["emailOpens", "Email Opens", false],
+  ["emailClicks", "Email Clicks", false],
 ];
 
-function NumField({ label, value, onChange, suffix }) {
+function NumField({ label, value, onChange, suffix, isMonetary, currency, rates }) {
+  // Item 1: these figures are entered/stored in BDT — the same convention
+  // product prices already use throughout this app — so editing always
+  // stays precise in BDT terms (no risky convert-while-typing/convert-back
+  // -on-save round-tripping). What's new is visibility: a clear BDT label
+  // plus a live "≈ [symbol][amount]" preview in whatever the current site
+  // base currency is, using the exact same displayPrice() conversion every
+  // other analytics tab already uses. Both pull from Redux, so the moment
+  // the admin changes the base currency in Site Settings, every preview
+  // here updates on its own — no save or reload needed.
+  const showConverted = isMonetary && value !== null && value !== undefined && currency && currency !== "BDT";
   return (
     <div>
       <label className="block text-xs font-medium text-theme-muted mb-1">{label}</label>
@@ -51,14 +65,22 @@ function NumField({ label, value, onChange, suffix }) {
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
           placeholder="Not set"
-          className={`input-field py-1.5 text-sm ${suffix ? "input-field-suffixed" : ""}`}
+          className={`input-field py-1.5 text-sm ${isMonetary ? "pl-10" : ""} ${suffix ? "input-field-suffixed" : ""}`}
         />
+        {isMonetary && (
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-theme-muted font-medium pointer-events-none">
+            ৳
+          </span>
+        )}
         {suffix && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-theme-muted font-medium pointer-events-none">
             {suffix}
           </span>
         )}
       </div>
+      {showConverted && (
+        <p className="text-xs text-theme-muted mt-1">≈ {displayPrice(value, currency, rates)} {currency}</p>
+      )}
     </div>
   );
 }
@@ -67,6 +89,13 @@ export default function SettingsTab() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Item 1: same Redux fields every other analytics tab already reads —
+  // baseCurrency always reflects Site Settings (not any personal shopper
+  // override), rates come from the server's cached/live FX fetch. Both
+  // update automatically (via GlobalProvider's settings poll), so anything
+  // that reads them here re-renders in step, with no extra plumbing needed.
+  const currency = useSelector((s) => s.currency.baseCurrency);
+  const rates = useSelector((s) => s.currency.rates);
 
   const load = async () => {
     try {
@@ -112,7 +141,9 @@ export default function SettingsTab() {
         <p>
           These are the dependency / key values every other analytics tab's formulas rely on. Leave anything
           blank if you don't have it yet — every metric that needs it will clearly say what's missing instead
-          of showing a wrong number.
+          of showing a wrong number. Monetary figures (marked ৳) are entered in BDT; if the site's base
+          currency (Site Settings) is set to something else, a live converted preview appears under each one
+          and updates automatically — no need to re-enter anything after changing it.
         </p>
       </div>
 
@@ -124,7 +155,8 @@ export default function SettingsTab() {
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
           {EXPENSE_FIELDS.map(([key, label]) => (
             <NumField key={key} label={label} value={settings.monthlyExpenses?.[key]}
-              onChange={(v) => set(["monthlyExpenses", key], v)} suffix="/mo" />
+              onChange={(v) => set(["monthlyExpenses", key], v)} suffix="/mo"
+              isMonetary currency={currency} rates={rates} />
           ))}
         </div>
       </div>
@@ -133,10 +165,12 @@ export default function SettingsTab() {
         <h2 className="font-display text-lg font-semibold mb-4">Balance Sheet Figures</h2>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
           {BALANCE_FIELDS.map(([key, label]) => (
-            <NumField key={key} label={label} value={settings[key]} onChange={(v) => set([key], v)} />
+            <NumField key={key} label={label} value={settings[key]} onChange={(v) => set([key], v)}
+              isMonetary currency={currency} rates={rates} />
           ))}
           <NumField label="Sales Tax Rate" value={settings.salesTaxRate} onChange={(v) => set(["salesTaxRate"], v)} suffix="%" />
-          <NumField label="Depreciation & Amortization" value={settings.depreciationAmortization} onChange={(v) => set(["depreciationAmortization"], v)} suffix="/mo" />
+          <NumField label="Depreciation & Amortization" value={settings.depreciationAmortization} onChange={(v) => set(["depreciationAmortization"], v)} suffix="/mo"
+            isMonetary currency={currency} rates={rates} />
         </div>
       </div>
 
@@ -144,8 +178,9 @@ export default function SettingsTab() {
         <h2 className="font-display text-lg font-semibold mb-1">Marketing Inputs</h2>
         <p className="text-xs text-theme-muted mb-4">Figures your ad platforms / email tool report — not tracked automatically by this site.</p>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {MARKETING_FIELDS.map(([key, label]) => (
-            <NumField key={key} label={label} value={settings[key]} onChange={(v) => set([key], v)} />
+          {MARKETING_FIELDS.map(([key, label, monetary]) => (
+            <NumField key={key} label={label} value={settings[key]} onChange={(v) => set([key], v)}
+              isMonetary={monetary} currency={currency} rates={rates} />
           ))}
         </div>
       </div>

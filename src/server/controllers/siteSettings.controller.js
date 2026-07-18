@@ -78,6 +78,76 @@ export const updateSiteSettingsController = async (req, res) => {
   }
 };
 
+// Fix (payment logos "getting deleted automatically"): the admin page used to
+// only upload the image file, then update local React state + optimistically
+// dispatch to Redux — it never called any endpoint to actually persist the
+// change, so the logo only ever existed in that browser tab's transient
+// state. The moment fresh server data replaced it (a reload, a different
+// admin session, or GlobalProvider's periodic settings poll), the never-saved
+// logo vanished, which looked like automatic deletion. These two mirror
+// addBannerController/deleteBannerController below exactly, so payment
+// methods now persist the same reliable way banners already did.
+export const addPaymentMethodController = async (req, res) => {
+  try {
+    const { name, image } = req.body;
+    if (!name || !image) {
+      return res.status(400).json({ message: "name and image are required", error: true, success: false });
+    }
+
+    let settings = await SiteSettingsModel.findOne({ key: "main" });
+    if (!settings) settings = new SiteSettingsModel({ key: "main" });
+
+    settings.paymentMethods.push({ name, image });
+    const saved = await settings.save();
+
+    return res.status(201).json({
+      message: "Payment method added successfully",
+      error: false,
+      success: true,
+      data: saved,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+export const deletePaymentMethodController = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    if (!_id) {
+      return res.status(400).json({ message: "Payment method _id is required", error: true, success: false });
+    }
+
+    const settings = await SiteSettingsModel.findOne({ key: "main" });
+    if (!settings) {
+      return res.status(404).json({ message: "Settings not found", error: true, success: false });
+    }
+
+    settings.paymentMethods = settings.paymentMethods.filter(
+      (pm) => pm._id.toString() !== _id
+    );
+
+    const saved = await settings.save();
+
+    return res.json({
+      message: "Payment method removed successfully",
+      error: false,
+      success: true,
+      data: saved,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
 // Add a banner (admin)
 export const addBannerController = async (req, res) => {
   try {

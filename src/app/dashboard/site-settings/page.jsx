@@ -39,30 +39,61 @@ export default function SiteSettingsPage() {
   const { fetchSiteSettings } = useGlobalContext();
 
   const { register, handleSubmit, formState:{ isSubmitting } } = useForm({
+    // Bug fix (site settings don't stay visible / silently revert): every
+    // field below is register()ed with a dotted PATH name, e.g.
+    // register("header.announcementText") — React Hook Form's internal
+    // `get(defaultValues, name)` resolves that by walking into a real
+    // NESTED object (defaultValues.header.announcementText), the same way
+    // onSubmit's payload construction already reads data.header
+    // ?.announcementText (see the "Bug fix" comment lower in this file).
+    // This block used to be a FLAT object whose keys merely *contained*
+    // literal dots, e.g. `"header.announcementText": "..."` — that isn't
+    // the same thing as a nested `header: { announcementText: "..." } }`,
+    // so `get()` always resolved to undefined and every dotted field
+    // rendered blank/default on load regardless of what was actually
+    // saved. Because handleSubmit sends the CURRENT value of every
+    // registered field (not just ones the admin touched this session),
+    // saving the form after a reload would then also re-submit those
+    // blank defaults and silently wipe the real saved values — which is
+    // why this looked like both "doesn't stay visible in Site Settings"
+    // and, eventually, "doesn't appear on the frontend" once any save
+    // happened after a reload. Nesting this properly fixes both at once.
     defaultValues: {
-      siteName:                         settings.siteName || "",
-      baseCurrency:                     settings.baseCurrency || "BDT",
-      "header.announcementText":        settings.header?.announcementText || "",
-      "header.showAnnouncement":        settings.header?.showAnnouncement || false,
-      "footer.aboutText":               settings.footer?.aboutText || "",
-      "footer.address":                 settings.footer?.address   || "",
-      "footer.phone":                   settings.footer?.phone     || "",
-      "footer.email":                   settings.footer?.email     || "",
-      "footer.copyrightText":           settings.footer?.copyrightText || "",
-      "footer.col2Title":               settings.footer?.col2Title || "Quick Links",
-      "footer.col3Title":               settings.footer?.col3Title || "Follow Us",
-      "footer.showNewsletter":          settings.footer?.showNewsletter || false,
-      "footer.socialLinks.facebook":    settings.footer?.socialLinks?.facebook  || "",
-      "footer.socialLinks.instagram":   settings.footer?.socialLinks?.instagram || "",
-      "footer.socialLinks.twitter":     settings.footer?.socialLinks?.twitter   || "",
-      "footer.socialLinks.youtube":     settings.footer?.socialLinks?.youtube   || "",
-      "theme.activeTheme":              settings.theme?.activeTheme || "default",
-      "language.activeLanguage":        settings.language?.activeLanguage || "en",
-      "shoppingListBanner.enabled":     settings.shoppingListBanner?.enabled !== false,
-      "shoppingListBanner.title":       settings.shoppingListBanner?.title || "Submit Your Shopping List",
-      "shoppingListBanner.subtitle":    settings.shoppingListBanner?.subtitle || "",
-      "shoppingListBanner.buttonText":  settings.shoppingListBanner?.buttonText || "Submit Shopping List",
-      codRequireDeliveryCharge:         settings.codRequireDeliveryCharge || false,
+      siteName:     settings.siteName || "",
+      baseCurrency: settings.baseCurrency || "BDT",
+      header: {
+        announcementText: settings.header?.announcementText || "",
+        showAnnouncement:  settings.header?.showAnnouncement || false,
+      },
+      footer: {
+        aboutText:      settings.footer?.aboutText || "",
+        address:        settings.footer?.address   || "",
+        phone:          settings.footer?.phone     || "",
+        email:          settings.footer?.email     || "",
+        copyrightText:  settings.footer?.copyrightText || "",
+        col2Title:      settings.footer?.col2Title || "Quick Links",
+        col3Title:      settings.footer?.col3Title || "Follow Us",
+        showNewsletter: settings.footer?.showNewsletter || false,
+        socialLinks: {
+          facebook:  settings.footer?.socialLinks?.facebook  || "",
+          instagram: settings.footer?.socialLinks?.instagram || "",
+          twitter:   settings.footer?.socialLinks?.twitter   || "",
+          youtube:   settings.footer?.socialLinks?.youtube   || "",
+        },
+      },
+      theme: {
+        activeTheme: settings.theme?.activeTheme || "default",
+      },
+      language: {
+        activeLanguage: settings.language?.activeLanguage || "en",
+      },
+      shoppingListBanner: {
+        enabled:    settings.shoppingListBanner?.enabled !== false,
+        title:      settings.shoppingListBanner?.title || "Submit Your Shopping List",
+        subtitle:   settings.shoppingListBanner?.subtitle || "",
+        buttonText: settings.shoppingListBanner?.buttonText || "Submit Shopping List",
+      },
+      codRequireDeliveryCharge: settings.codRequireDeliveryCharge || false,
     },
   });
 
@@ -148,10 +179,14 @@ export default function SiteSettingsPage() {
     } catch (err) { axiosToastError(err); }
   };
 
-  // Fix 7: payment method logos — a plain array field (like quickLinks),
-  // saved together with the rest of the form, but the upload itself still
-  // happens immediately on file select so the admin sees the logo appear
-  // right away rather than waiting for the full form Save.
+  // Fix (payment logos "getting deleted automatically"): this used to only
+  // upload the image and update local/Redux state optimistically, with no
+  // call to any backend endpoint — so nothing was ever actually saved to
+  // the database. The logo would vanish the next time fresh server data
+  // replaced the optimistic state (a reload, another admin session, or
+  // GlobalProvider's periodic settings poll). Now mirrors handleBannerAdd
+  // exactly: upload the file, then persist via a dedicated endpoint that
+  // saves immediately, the same reliable way banners already worked.
   const handlePaymentLogoAdd = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -161,20 +196,28 @@ export default function SiteSettingsPage() {
       const up = await uploadImage(f, Axios, api);
       const url = up?.data?.url;
       if (url) {
-        const updated = [...paymentMethods, { name: newPaymentName.trim(), image: url }];
-        setPaymentMethods(updated);
-        dispatch(setSiteSettings({ ...settings, paymentMethods: updated }));
-        setNewPaymentName("");
-        toast.success("Payment method added");
+        const r = await Axios({ ...api.addPaymentMethod, data: { name: newPaymentName.trim(), image: url } });
+        if (r.data?.success) {
+          const updated = r.data.data?.paymentMethods || [...paymentMethods, { name: newPaymentName.trim(), image: url }];
+          setPaymentMethods(updated);
+          dispatch(setSiteSettings({ ...settings, paymentMethods: updated }));
+          setNewPaymentName("");
+          toast.success("Payment method added");
+        }
       }
     } catch (err) { axiosToastError(err); }
     finally { setSavingPaymentLogo(false); }
   };
 
-  const handlePaymentLogoRemove = (i) => {
-    const updated = paymentMethods.filter((_, idx) => idx !== i);
-    setPaymentMethods(updated);
-    dispatch(setSiteSettings({ ...settings, paymentMethods: updated }));
+  const handlePaymentLogoRemove = async (i) => {
+    const pm = paymentMethods[i];
+    try {
+      if (pm._id) await Axios({ ...api.deletePaymentMethod, data: { _id: pm._id } });
+      const updated = paymentMethods.filter((_, idx) => idx !== i);
+      setPaymentMethods(updated);
+      dispatch(setSiteSettings({ ...settings, paymentMethods: updated }));
+      toast.success("Payment method removed");
+    } catch (err) { axiosToastError(err); }
   };
 
   const addQuickLink = () => {

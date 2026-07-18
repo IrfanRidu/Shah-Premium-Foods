@@ -53,6 +53,11 @@ const api = {
   updateSiteSettings:    { url: "/api/settings/update",          method: "put"  },
   addBanner:             { url: "/api/settings/banner/add",      method: "post" },
   deleteBanner:          { url: "/api/settings/banner/delete",   method: "delete"},
+  // Fix (payment logos never persisted): mirrors addBanner/deleteBanner above —
+  // a dedicated endpoint that saves immediately, instead of only updating local
+  // React state + optimistically dispatching to Redux with no DB write at all.
+  addPaymentMethod:      { url: "/api/settings/payment-method/add",    method: "post"  },
+  deletePaymentMethod:   { url: "/api/settings/payment-method/delete", method: "delete"},
   // Flash Sales
   // Campaigns (admin-named promo sections — defaults to "Flash Sale" look if unnamed)
   getActiveCampaigns:    { url: "/api/campaigns/active",        method: "get"  },

@@ -6,6 +6,8 @@ import {
   updateSiteSettingsController,
   addBannerController,
   deleteBannerController,
+  addPaymentMethodController,
+  deletePaymentMethodController,
   updateFaqController,
   getFaqController,
 } from "@/server/controllers/siteSettings.controller";
@@ -15,6 +17,8 @@ const ROUTES = {
   "PUT:/update":           [[auth, checkPermission("settings", "edit")], updateSiteSettingsController],
   "POST:/banner/add":      [[auth, checkPermission("settings", "edit")], addBannerController],
   "DELETE:/banner/delete": [[auth, checkPermission("settings", "edit")], deleteBannerController],
+  "POST:/payment-method/add":      [[auth, checkPermission("settings", "edit")], addPaymentMethodController],
+  "DELETE:/payment-method/delete": [[auth, checkPermission("settings", "edit")], deletePaymentMethodController],
   "GET:/faq":              [[], getFaqController],
   "PUT:/faq":              [[auth, checkPermission("settings", "edit")], updateFaqController],
 };
