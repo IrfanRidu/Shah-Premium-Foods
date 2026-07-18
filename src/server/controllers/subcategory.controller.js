@@ -1,6 +1,7 @@
 import SubCategoryModel from "../models/subcategory.model.js";
 import ProductModel from "../models/product.model.js";
 
+
 // ADD SUB CATEGORY (admin)
 export const addSubCategoryController = async (req, res) => {
   try {

@@ -9,6 +9,7 @@ import generateAccessToken from "../utils/generateAccessToken.js";
 import generateRefreshToken from "../utils/generateRefreshToken.js";
 import uploadImageCloudinary from "../utils/uploadImageCloudinary.js";
 
+
 const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
