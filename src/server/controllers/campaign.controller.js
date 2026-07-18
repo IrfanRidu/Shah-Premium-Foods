@@ -91,7 +91,7 @@ export const getCampaignByIdController = async (req, res) => {
 // CREATE campaign (admin) — name/icon optional, falls back to classic Flash Sale look
 export const createCampaignController = async (req, res) => {
   try {
-    const { name, icon, description, startTime, endTime, products, isActive, showOnHomepage, showOnProductPage, displayOrder, bannerImage, badgeColor } = req.body;
+    const { name, icon, description, startTime, endTime, products, isActive, showOnHomepage, showOnProductPage, displayOrder, bannerImage, badgeColor, badgeStyle, badgeGradient, badgeImage, textColor, iconColor } = req.body;
     if (!startTime || !endTime)
       return res.status(400).json({ success: false, error: true, message: "startTime and endTime are required" });
 
@@ -104,6 +104,11 @@ export const createCampaignController = async (req, res) => {
       displayOrder: displayOrder || 0,
       bannerImage: bannerImage || "",
       badgeColor: badgeColor || "#ef4444",
+      badgeStyle: badgeStyle || "solid",
+      badgeGradient: badgeGradient || "",
+      badgeImage: badgeImage || "",
+      textColor: textColor || "#ffffff",
+      iconColor: iconColor || "#ffffff",
     });
     await campaign.save();
 

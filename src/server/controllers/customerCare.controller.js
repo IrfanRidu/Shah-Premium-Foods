@@ -1,4 +1,6 @@
 import SupportTicketModel from "../models/supportTicket.model.js";
+import UserModel from "../models/user.model.js";
+import OrderModel from "../models/order.model.js";
 import { createNotification } from "./notification.controller.js";
 
 // LIST tickets (admin) — filter by status

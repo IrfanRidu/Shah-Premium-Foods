@@ -1,5 +1,6 @@
 import CartProductModel from "../models/cartProduct.model.js";
 import UserModel from "../models/user.model.js";
+import ProductModel from "../models/product.model.js";
 
 // ADD TO CART
 export const addToCartItemController = async (req, res) => {

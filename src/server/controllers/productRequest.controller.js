@@ -1,4 +1,5 @@
 import ProductRequestModel from "../models/productRequest.model.js";
+import UserModel from "../models/user.model.js";
 
 // CUSTOMER: submit a shopping list — either typed text or an uploaded photo
 // (the image itself is uploaded via the existing /api/file/upload endpoint

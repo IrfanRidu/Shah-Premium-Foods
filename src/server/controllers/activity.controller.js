@@ -1,5 +1,6 @@
 import ActivityLogModel from "../models/activityLog.model.js";
 import ProductModel from "../models/product.model.js";
+import UserModel from "../models/user.model.js";
 
 // LOG activity
 export const logActivityController = async (req, res) => {

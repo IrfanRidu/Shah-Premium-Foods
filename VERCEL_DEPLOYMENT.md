@@ -178,3 +178,14 @@ field), then manage everything else from the admin dashboard from there.
 - **Stripe payments complete but orders don't update** — the webhook
   secret is missing or wrong, or the webhook endpoint URL doesn't match
   your actual domain. Re-check step 5b.
+- **`Schema hasn't been registered for model "X". Use mongoose.model(name, schema)`**
+  — this is a Vercel-serverless-specific Mongoose issue, not a config
+  problem, and as of Batch 10 it's fixed at the root cause: every model is
+  now registered centrally (`src/server/models/registerModels.js`, loaded
+  from the top of `src/lib/mongodb.js`) before any request is handled, so
+  this shouldn't happen anymore. If it somehow resurfaces after a future
+  change — most likely because a brand-new model file was added but never
+  added to `registerModels.js` — add a line for it there
+  (`import "./yourNewModel.model.js";`) and it's solved everywhere at
+  once; you don't need to hunt down which specific controller/route was
+  missing an import.

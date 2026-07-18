@@ -1,4 +1,11 @@
 import mongoose from "mongoose";
+// Side-effect import: registers every Mongoose model the moment this module
+// is loaded (which happens before any request is handled — see
+// apiHandler.js, which imports connectDb from this file at its own top
+// level). Fixes "Schema hasn't been registered for model 'X'" on Vercel —
+// see the comment block at the top of registerModels.js for the full
+// root-cause explanation.
+import "../server/models/registerModels.js";
 
 let connectionPromise = null;
 

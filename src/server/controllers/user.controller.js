@@ -1,6 +1,7 @@
 import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import UserModel from "../models/user.model.js";
+import AddressModel from "../models/address.model.js";
 import sendEmail from "../config/sendEmail.js";
 import verifyEmailTemplate from "../utils/verifyEmailTemplete.js";
 import forgotPasswordTemplate from "../utils/forgetPasswordTemplete.js";
@@ -8,7 +9,6 @@ import generateOtp from "../utils/generateOtp.js";
 import generateAccessToken from "../utils/generateAccessToken.js";
 import generateRefreshToken from "../utils/generateRefreshToken.js";
 import uploadImageCloudinary from "../utils/uploadImageCloudinary.js";
-
 
 const cookieOptions = {
   httpOnly: true,

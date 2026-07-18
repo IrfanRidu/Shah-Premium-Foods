@@ -1,4 +1,5 @@
 import CouponModel from "../models/coupon.model.js";
+import ProductModel from "../models/product.model.js";
 import { evaluateCoupon } from "../utils/couponEligibility.js";
 
 // VALIDATE coupon (user) — live "Apply" button on the Cart page.

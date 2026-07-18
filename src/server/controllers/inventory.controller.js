@@ -1,5 +1,7 @@
 import InventoryLogModel from "../models/inventoryLog.model.js";
 import ProductModel from "../models/product.model.js";
+import CategoryModel from "../models/category.model.js";
+import UserModel from "../models/user.model.js";
 
 // GET inventory for all products (admin)
 export const getInventoryController = async (req, res) => {

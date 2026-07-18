@@ -36,10 +36,6 @@ const productSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    preCampaignDiscount: {
-      type: Number,
-      default: 0,
-    },
     stock: {
       type: Number,
       default: 0,

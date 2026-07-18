@@ -1,5 +1,7 @@
 import ProductModel from "../models/product.model.js";
 import InventoryLogModel from "../models/inventoryLog.model.js";
+import CategoryModel from "../models/category.model.js";
+import SubCategoryModel from "../models/subcategory.model.js";
 
 // Auto-generate a unique SKU like SPF-00001
 const generateSKU = async () => {
@@ -20,7 +22,7 @@ export const addProductController = async (req, res) => {
     const {
       name, image, category, subCategory, unit,
       stock, lowStockThreshold, price, costPrice, discount,
-      description, more_details, publish, translations,
+      shortDescription, description, more_details, publish, translations,
       alternativeSpellings,
     } = req.body;
 
@@ -40,7 +42,7 @@ export const addProductController = async (req, res) => {
       stock: stock || 0,
       lowStockThreshold: lowStockThreshold || 10,
       price, costPrice: costPrice || 0, discount,
-      description, more_details, publish, translations,
+      shortDescription, description, more_details, publish, translations,
       alternativeSpellings: Array.isArray(alternativeSpellings) ? alternativeSpellings : [],
     });
 

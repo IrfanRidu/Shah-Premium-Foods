@@ -1,5 +1,6 @@
 import UserModel from "../models/user.model.js";
 import OrderModel from "../models/order.model.js";
+import AddressModel from "../models/address.model.js";
 import mongoose from "mongoose";
 
 // GET all customers with order stats, filter, sort (admin)

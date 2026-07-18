@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 import ProductModel from "../models/product.model.js";
 import OrderModel from "../models/order.model.js";
 import InventoryLogModel from "../models/inventoryLog.model.js";
+import CategoryModel from "../models/category.model.js";
+import AddressModel from "../models/address.model.js";
+import UserModel from "../models/user.model.js";
 
 // A single "scan anything" endpoint: a USB/camera barcode scanner just types
 // the code + Enter into whatever input is focused. Whether that code is a

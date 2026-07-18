@@ -176,7 +176,7 @@ export const cashOnDeliveryOrderController = async (req, res) => {
 
     const populated = await OrderModel.findById(saved._id).populate("delivery_address").populate("userId", "name email mobile");
 
-    return res.status(201).json({ message: "Order placed successfully", error: false, success: true, data: saved });
+    return res.status(201).json({ message: "Order placed successfully", error: false, success: true, data: populated });
   } catch (error) {
     return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });
   }
