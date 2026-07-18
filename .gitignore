@@ -1,0 +1,50 @@
+# This file did not exist before — without it, a `git add .` would happily
+# stage node_modules (huge, and Vercel installs its own copy from
+# package.json anyway) and, far more importantly, .env.local — which holds
+# real secrets (MongoDB URI, JWT signing secrets, Cloudinary/Resend/Stripe
+# keys). Committing that to any repo, public or private, means treating
+# every one of those secrets as compromised and rotating them.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env files — NEVER commit real secrets. .env.example is the only env file
+# meant to be tracked; it contains no real values, only placeholders.
+.env
+.env*.local
+.env.production
+.env.development
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea

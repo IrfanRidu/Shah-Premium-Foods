@@ -1,0 +1,467 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Google Fonts ─────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ─── CSS Variable Themes ───────────────────────────────────── */
+:root,
+[data-theme="default"] {
+  --color-bg:          #FAFAF8;
+  --color-surface:     #F4F1EC;
+  --color-border:      #E6E2DC;
+  --color-primary:     #4A7860;
+  --color-primary-h:   #3A6350;
+  --color-secondary:   #C08040;
+  --color-text:        #1C1C1A;
+  --color-muted:       #7A7A72;
+  --color-header-bg:   #FFFFFF;
+  --color-footer-bg:   #1C1C1A;
+  --color-footer-text: #E6E2DC;
+}
+
+[data-theme="dark"] {
+  --color-bg:          #111210;
+  --color-surface:     #1C1E1B;
+  --color-border:      #2E302D;
+  --color-primary:     #62a07f;
+  --color-primary-h:   #4A7860;
+  --color-secondary:   #d4974e;
+  --color-text:        #ECECE8;
+  --color-muted:       #9A9A90;
+  --color-header-bg:   #161816;
+  --color-footer-bg:   #0A0B0A;
+  --color-footer-text: #A0A098;
+}
+
+[data-theme="ocean"] {
+  --color-bg:          #F0F7FF;
+  --color-surface:     #E4F0FC;
+  --color-border:      #C8DEEF;
+  --color-primary:     #1E6FA8;
+  --color-primary-h:   #155889;
+  --color-secondary:   #F59E0B;
+  --color-text:        #0F2537;
+  --color-muted:       #5A7C96;
+  --color-header-bg:   #FFFFFF;
+  --color-footer-bg:   #0F2537;
+  --color-footer-text: #C8DEEF;
+}
+
+[data-theme="festive"] {
+  --color-bg:          #FFF8F0;
+  --color-surface:     #FEF0E0;
+  --color-border:      #F5DFC0;
+  --color-primary:     #C0392B;
+  --color-primary-h:   #A02820;
+  --color-secondary:   #E67E22;
+  --color-text:        #1A0A00;
+  --color-muted:       #8B5E3C;
+  --color-header-bg:   #FFFFFF;
+  --color-footer-bg:   #1A0A00;
+  --color-footer-text: #F5DFC0;
+}
+
+/* ─── Base ──────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+  }
+}
+
+/*
+ * Everything below lives in @layer components — this is the key fix:
+ * Tailwind always places @layer components BEFORE @layer utilities in the
+ * final stylesheet, regardless of where they're written in this source file.
+ * That guarantees utility classes (pl-9, pr-10, text-sm, etc.) used alongside
+ * these custom classes in a className string always win the cascade, instead
+ * of being silently overridden by e.g. .input-field's own padding. Previously
+ * these were plain (un-layered) rules declared after @tailwind utilities, so
+ * THEY won instead — which is exactly what caused typed coupon-code text to
+ * render underneath the tag icon instead of after it.
+ */
+@layer components {
+  /* ─── Typography helpers ────────────────────────────────────── */
+  .font-display { font-family: 'Playfair Display', Georgia, serif; }
+
+  .section-heading {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  /* ─── Theme utility classes ─────────────────────────────────── */
+  .bg-theme-primary   { background-color: var(--color-primary); }
+  .bg-theme-surface   { background-color: var(--color-surface); }
+  .bg-theme-bg        { background-color: var(--color-bg); }
+  .text-theme-primary { color: var(--color-primary); }
+  .text-theme-muted   { color: var(--color-muted); }
+  .text-theme         { color: var(--color-text); }
+  .border-theme       { border-color: var(--color-border); }
+  .border-theme-primary { border-color: var(--color-primary); }
+
+  .hover-theme-primary:hover { background-color: var(--color-primary-h); }
+
+  /* ─── Product card ──────────────────────────────────────────── */
+  /* ─── Product card — liquid glass design (Fix 22, 32) ──────── */
+  .product-card {
+    /* Liquid glass: translucent surface + frosted backdrop */
+    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    border: 1px solid color-mix(in srgb, var(--color-border) 60%, white 40%);
+    border-radius: 1.25rem;
+    overflow: hidden;
+    transition: transform 0.25s cubic-bezier(.22,1,.36,1), box-shadow 0.25s ease;
+    /* Fix 32: uniform height layout — use flex-col */
+    display: flex;
+    flex-direction: column;
+    /* glass shine at top */
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .product-card:hover {
+    transform: translateY(-6px) scale(1.015);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.5),
+      0 20px 48px -12px rgba(0,0,0,0.18),
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  }
+  /* Fix 32: card info section flex-grow so cards with less content still fill height */
+  .product-card .card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  /* ─── Input ─────────────────────────────────────────────────── */
+  .input-field {
+    width: 100%;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+  .input-field:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  /* Number inputs paired with a suffix badge (e.g. "/mo", "%") — used in
+     Analytics Settings. Native browser spinner arrows sit in the same
+     right-edge space as the suffix text, so the two visibly overlapped.
+     Hiding the spinner and reserving right-padding fixes this cleanly;
+     typing/selecting still works exactly the same, only the redundant
+     little up/down arrows are gone. */
+  .input-field-suffixed {
+    padding-right: 2.75rem;
+  }
+  .input-field-suffixed::-webkit-outer-spin-button,
+  .input-field-suffixed::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .input-field-suffixed[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Suppress browsers' own built-in password-reveal icons so our custom
+     eye-icon button is the only one rendered — without this, Edge/IE's
+     native reveal button can sit in the exact same spot and silently
+     intercept clicks meant for ours. */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
+
+  /* The eye-icon button that sits inside a password field. Explicit z-index
+     and cursor guarantee it stays clickable and on top of the input itself,
+     and pointer-events is never inherited as "none" from a parent. */
+  .password-toggle-btn {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    cursor: pointer;
+    color: var(--color-muted);
+    background: transparent;
+    border: none;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+  }
+  .password-toggle-btn:hover { color: var(--color-primary); }
+
+  /* ─── Button ────────────────────────────────────────────────── */
+  /* Fix 22: Liquid glass primary button */
+  .btn-primary {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--color-primary) 90%, white) 0%,
+      var(--color-primary) 50%,
+      var(--color-primary-h) 100%);
+    color: #fff;
+    border-radius: 9999px;
+    padding: 0.625rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 60%, white 40%);
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 8px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    transition: all 0.2s cubic-bezier(.22,1,.36,1);
+    backdrop-filter: blur(4px);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-h) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 6px 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+  .btn-outline {
+    border: 1.5px solid var(--color-primary);
+    color: var(--color-primary);
+    border-radius: 9999px;
+    padding: 0.625rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.15s;
+    background: transparent;
+    cursor: pointer;
+  }
+  .btn-outline:hover {
+    background-color: var(--color-primary);
+    color: #fff;
+  }
+
+  /* ─── Admin action button group ─────────────────────────────────
+     Wrapper for any row of icon-btn / row-action-btn elements that
+     ensures all siblings share the same baseline regardless of type.  */
+  .action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+  }
+
+  /* ─── Admin action icon buttons ─────────────────────────────────
+     Standardized fixed-size square buttons for table/list row actions
+     (Edit, Delete, Toggle, etc.) so every row across every admin page
+     lines up to the same grid instead of mixing p-2/text-2xl/h-8/h-9
+     ad-hoc sizes. Always pair with a 13–14px icon for visual balance. */
+  .icon-btn {
+    height: 2.25rem;
+    width: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    color: var(--color-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .icon-btn:hover { background-color: var(--color-border); color: var(--color-primary); }
+  .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .icon-btn-danger:hover { background-color: #fef2f2; color: #ef4444; }
+  .icon-btn-active { color: #22c55e; }
+  .icon-btn-active:hover { background-color: #f0fdf4; color: #16a34a; }
+  .icon-btn-round {
+    border-radius: 9999px;
+  }
+  /* Text-label action buttons that must sit flush with .icon-btn siblings
+     in the same row (e.g. a circular call button next to a "View" button) */
+  .row-action-btn {
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.875rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+  }
+  .row-action-btn:hover { background-color: var(--color-primary); color: #fff; }
+  .row-action-btn-muted {
+    border-color: var(--color-border);
+    color: var(--color-muted);
+  }
+  .row-action-btn-muted:hover {
+    background-color: var(--color-border);
+    color: var(--color-primary);
+    border-color: var(--color-border);
+  }
+
+  /* Solid-color round icon buttons (Call, Download PDF) used alongside
+     .icon-btn / .row-action-btn in the same row — same 2.25rem box so
+     everything in the row sits on one consistent baseline. */
+  .icon-btn-call {
+    height: 2.25rem;
+    width: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: #22c55e;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease;
+  }
+  .icon-btn-call:hover { background-color: #16a34a; }
+  .icon-btn-pdf, .icon-btn-info {
+    height: 2.25rem;
+    width: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: #3b82f6;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease;
+  }
+  .icon-btn-pdf:hover, .icon-btn-info:hover { background-color: #2563eb; }
+
+  /* ─── Skeleton loader ───────────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-border) 25%,
+      color-mix(in srgb, var(--color-border) 60%, var(--color-bg)) 50%,
+      var(--color-border) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 0.5rem;
+  }
+
+  /* ─── Overlay modal ─────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease;
+  }
+  .modal-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90dvh;
+    overflow-y: auto;
+    animation: slideUp 0.25s ease;
+  }
+
+  /* ─── Carousel dots ─────────────────────────────────────────── */
+  .carousel-dot {
+    height: 6px; border-radius: 9999px; transition: all 0.25s;
+    background: var(--color-border); flex-shrink: 0;
+  }
+  .carousel-dot.active {
+    background: var(--color-primary); width: 20px;
+  }
+  .carousel-dot:not(.active) { width: 6px; }
+
+  /* ─── Badge ─────────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+  }
+
+  /* ─── Table ─────────────────────────────────────────────────── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    background: var(--color-surface);
+    padding: 0.625rem 0.875rem;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-muted);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .data-table td {
+    padding: 0.75rem 0.875rem;
+    font-size: 0.875rem;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: color-mix(in srgb, var(--color-primary) 4%, transparent); }
+
+  /* ─── Add to Cart button — neon-on-black hover ───────────────
+     (the default/idle look stays the same outlined style; only the
+     hover state changes to a solid black background with neon-green text) */
+  .btn-add-to-cart {
+    width: 100%;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    border-radius: 9999px;
+    padding: 0 1rem;
+    background: transparent;
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+  }
+  .btn-add-to-cart:hover:not(:disabled) {
+    background-color: #0a0a0a;
+    border-color: #0a0a0a;
+    color: #39ff6a; /* neon green */
+  }
+  .btn-add-to-cart:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+/* ─── Scrollbar (not a component class, leave un-layered) ────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-surface); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+/* ─── Keyframes (global, layer-agnostic) ─────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes fadeIn  { from { opacity:0 } to { opacity:1 } }
+@keyframes slideUp { from { opacity:0; transform:translateY(16px) } to { opacity:1; transform:translateY(0) } }
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 30s linear infinite; }
