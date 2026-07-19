@@ -94,6 +94,20 @@ export default function SiteSettingsPage() {
         buttonText: settings.shoppingListBanner?.buttonText || "Submit Shopping List",
       },
       codRequireDeliveryCharge: settings.codRequireDeliveryCharge || false,
+      // #23: SEO fields already existed on the settings model (used by
+      // the sitemap generator's fallbacks and, until now, nothing else) —
+      // this form previously had no way to edit any of them at all.
+      seo: {
+        metaTitle:             settings.seo?.metaTitle || "",
+        metaDescription:       settings.seo?.metaDescription || "",
+        metaKeywords:          settings.seo?.metaKeywords || "",
+        ogImage:               settings.seo?.ogImage || "",
+        canonicalUrl:          settings.seo?.canonicalUrl || "",
+        structuredData:        settings.seo?.structuredData || "",
+        googleAnalyticsId:     settings.seo?.googleAnalyticsId || "",
+        googleSearchConsoleId: settings.seo?.googleSearchConsoleId || "",
+        robotsTxt:             settings.seo?.robotsTxt || "User-agent: *\nAllow: /",
+      },
     },
   });
 
@@ -249,6 +263,16 @@ export default function SiteSettingsPage() {
 
   const onSubmit = async (data) => {
     try {
+      // Non-blocking validation: structuredData is optional, but if the
+      // admin typed something, warn them if it isn't valid JSON so it
+      // doesn't silently fail to appear on the live site later. Still
+      // saves either way — the layout's own JSON.parse try/catch is the
+      // real safety net that keeps bad JSON from breaking the page.
+      if (data.seo?.structuredData?.trim()) {
+        try { JSON.parse(data.seo.structuredData); }
+        catch { toast.error("Structured data isn't valid JSON — saved anyway, but it won't be used on the site until it's fixed."); }
+      }
+
       let logoUrl    = settings.logo    || "";
       let faviconUrl = settings.favicon || "";
 
@@ -309,6 +333,17 @@ export default function SiteSettingsPage() {
         paymentMethods,
         theme:    { activeTheme: data.theme?.activeTheme, availableThemes: THEMES },
         language: { activeLanguage: data.language?.activeLanguage, availableLanguages: LANGS },
+        seo: {
+          metaTitle:             data.seo?.metaTitle,
+          metaDescription:       data.seo?.metaDescription,
+          metaKeywords:          data.seo?.metaKeywords,
+          ogImage:               data.seo?.ogImage,
+          canonicalUrl:          data.seo?.canonicalUrl,
+          structuredData:        data.seo?.structuredData,
+          googleAnalyticsId:     data.seo?.googleAnalyticsId,
+          googleSearchConsoleId: data.seo?.googleSearchConsoleId,
+          robotsTxt:             data.seo?.robotsTxt,
+        },
       };
 
       const r = await Axios({ ...api.updateSiteSettings, data: payload });
@@ -553,6 +588,59 @@ export default function SiteSettingsPage() {
             <option value="bn">বাংলা</option>
             <option value="fr">Français</option>
           </select>
+        </div>
+      </Section>
+
+      {/* #23: SEO — meta tags, Open Graph, canonical URL, structured data
+          (JSON-LD), Google Analytics / Search Console IDs, and robots.txt
+          content. Consumed by layout.jsx's generateMetadata() (title/
+          description/keywords/OG/canonical/verification), the JSON-LD
+          <script> injected in the same layout, the GA snippet, and the
+          new /robots.txt route — see those files for how each field is
+          actually used on the live site. */}
+      <Section title="SEO">
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Meta Title</label>
+          <input {...register("seo.metaTitle")} className="input-field" placeholder="Falls back to Site Name if left blank" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Meta Description</label>
+          <textarea {...register("seo.metaDescription")} rows={2} className="input-field" placeholder="Shown in search engine results under the title" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Meta Keywords</label>
+          <input {...register("seo.metaKeywords")} className="input-field" placeholder="comma, separated, keywords" />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Open Graph Image URL</label>
+            <input {...register("seo.ogImage")} className="input-field" placeholder="https://…" />
+            <p className="text-xs text-theme-muted mt-1">Shown as the preview image when the site is shared on social media.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Canonical URL</label>
+            <input {...register("seo.canonicalUrl")} className="input-field" placeholder="https://yourdomain.com" />
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Google Analytics ID</label>
+            <input {...register("seo.googleAnalyticsId")} className="input-field" placeholder="G-XXXXXXXXXX" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Google Search Console Verification ID</label>
+            <input {...register("seo.googleSearchConsoleId")} className="input-field" placeholder="the content value only, not the full meta tag" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Structured Data (JSON-LD)</label>
+          <textarea {...register("seo.structuredData")} rows={4} className="input-field font-mono text-xs" placeholder='{"@context":"https://schema.org","@type":"Organization",…}' />
+          <p className="text-xs text-theme-muted mt-1">Optional. Must be valid JSON — invalid JSON here is skipped on the live site rather than breaking the page, but won't get an SEO benefit either.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">robots.txt content</label>
+          <textarea {...register("seo.robotsTxt")} rows={4} className="input-field font-mono text-xs" />
+          <p className="text-xs text-theme-muted mt-1">Served live at <code>/robots.txt</code>.</p>
         </div>
       </Section>
 

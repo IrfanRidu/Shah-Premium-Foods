@@ -17,7 +17,7 @@ import { setRates, setSelectedCurrency, setBaseCurrency } from "@/store/currency
 import { setSessionId } from "@/store/activitySlice";
 import { setPermissions, clearPermissions } from "@/store/permissionsSlice";
 import { setActiveTheme, setActiveLanguage } from "@/store/siteSettingsSlice";
-import { loadPersistedState } from "@/store/localStorageMiddleware";
+import { loadPersistedState, markHydrated } from "@/store/localStorageMiddleware";
 
 const GlobalContext = createContext({
   fetchUser: () => {},
@@ -44,38 +44,6 @@ export default function GlobalProvider({ children }) {
   const selectedCurrency = useSelector((s) => s.currency.selected);
   const ratesUpdatedAt   = useSelector((s) => s.currency.updatedAt);
   const initDone = useRef(false);
-
-  // ─── Session ID + restore personal preferences ───────────────────
-  // Fix (hydration crash): this restoration used to partly happen via
-  // `preloadedState` at store-creation time (unsafe — see store.js) and
-  // partly via a redundant separate `localStorage.getItem("currency")`
-  // read. Both are now consolidated here: this runs in a useEffect, which
-  // by definition fires strictly after React has already reconciled
-  // hydration against the server-rendered HTML, so updating Redux here is
-  // just a normal (safe) state update — never a hydration mismatch —
-  // regardless of what any component conditionally renders based on it.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let sid = sessionStorage.getItem("spf_session");
-    if (!sid) {
-      sid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      sessionStorage.setItem("spf_session", sid);
-    }
-    dispatch(setSessionId(sid));
-
-    const persisted = loadPersistedState();
-    const savedTheme      = persisted?.siteSettings?.theme?.activeTheme;
-    const savedLanguage   = persisted?.siteSettings?.language?.activeLanguage;
-    const savedCurrency   = persisted?.currency?.selected;
-    const savedIsOverride = persisted?.currency?.isUserOverride;
-    if (savedTheme)    dispatch(setActiveTheme(savedTheme));
-    if (savedLanguage) dispatch(setActiveLanguage(savedLanguage));
-    // Item 7: only restore this as a personal override if it really was one
-    // — otherwise leave `selected` alone and let the fetchSiteSettings()
-    // call below (which always runs right after boot) set it to whatever
-    // the admin's current base currency actually is.
-    if (savedIsOverride && savedCurrency) dispatch(setSelectedCurrency(savedCurrency));
-  }, [dispatch]);
 
   // ─── Data fetchers ───────────────────────────────────────────────
   const fetchUser = useCallback(async () => {
@@ -219,10 +187,85 @@ export default function GlobalProvider({ children }) {
     } catch {}
   }, [sessionId, userId]);
 
-  // ─── Boot ────────────────────────────────────────────────────────
+  // ─── Boot: session ID + restore personal preferences + initial fetches ──
+  // Fix (hydration crash, historical): this restoration used to partly
+  // happen via `preloadedState` at store-creation time (unsafe — see
+  // store.js) and partly via a redundant separate
+  // `localStorage.getItem("currency")` read. Both were consolidated into a
+  // useEffect instead — safe, because a useEffect by definition fires
+  // strictly after React has already reconciled hydration against the
+  // server-rendered HTML, so updating Redux here is a normal state update,
+  // never a hydration mismatch, regardless of what any component
+  // conditionally renders based on it.
+  //
+  // Fix (currency silently reverting to the site's base currency on a page
+  // refresh): restoring the saved currency override and calling
+  // fetchSiteSettings() (which dispatches setBaseCurrency — see
+  // currencySlice.js's `if (!s.isUserOverride)` guard, which is what's
+  // supposed to make setBaseCurrency leave a personal override alone) used
+  // to live in two SEPARATE useEffects, in the right declaration order.
+  // React does guarantee same-commit effects run in declaration order, and
+  // the restore effect had no `await` in it, so on paper it should always
+  // finish before the fetch's async dispatch resolves — but a page refresh
+  // goes through a full server round-trip and hydration first, which is a
+  // lot more moving parts than that guarantee alone accounts for, and this
+  // project has already hit one hydration-timing bug in this exact area
+  // (see the fix note just above). Rather than keep relying on cross-effect
+  // timing for this, restoration now happens as the very first lines of
+  // THIS SAME effect, before fetchSiteSettings() is even called. There's no
+  // longer any ordering question to reason about — it's one linear sequence
+  // of synchronous statements in a single function, not two independently
+  // scheduled effects, so the override is guaranteed to already be in the
+  // Redux store before anything that could possibly overwrite it runs.
   useEffect(() => {
     if (initDone.current) return;
     initDone.current = true;
+
+    if (typeof window !== "undefined") {
+      // ROOT CAUSE of "currency reverts to site base currency on refresh":
+      // this used to call dispatch(setSessionId(sid)) *before* reading
+      // localStorage via loadPersistedState(). setSessionId is an ordinary
+      // action — not filtered by persistMiddleware's `@@redux/` prefix
+      // check — so it passed straight through the middleware, which
+      // immediately re-saved state.currency/state.siteSettings to
+      // localStorage using the store's still-fresh default values (BDT,
+      // isUserOverride:false), since store.js intentionally no longer
+      // preloads from localStorage (see store.js's own fix note). That
+      // silently clobbered a previously-saved currency override with the
+      // defaults a few lines *before* loadPersistedState() ever read it
+      // back — so the restore below was always reading data that had
+      // already been wiped moments earlier in the very same effect, and
+      // fetchSiteSettings()'s setBaseCurrency() dispatch (whose own guard
+      // is otherwise correct) then "won" by default. Fixed by reading and
+      // restoring persisted state FIRST, before any other dispatch of any
+      // kind gets a chance to trigger a write-back through
+      // persistMiddleware.
+      const persisted = loadPersistedState();
+      const savedTheme      = persisted?.siteSettings?.theme?.activeTheme;
+      const savedLanguage   = persisted?.siteSettings?.language?.activeLanguage;
+      const savedCurrency   = persisted?.currency?.selected;
+      const savedIsOverride = persisted?.currency?.isUserOverride;
+      if (savedTheme)    dispatch(setActiveTheme(savedTheme));
+      if (savedLanguage) dispatch(setActiveLanguage(savedLanguage));
+      // Item 7: only restore this as a personal override if it really was
+      // one — otherwise leave `selected` alone and let fetchSiteSettings()
+      // just below set it to whatever the admin's current base currency is.
+      if (savedIsOverride && savedCurrency) dispatch(setSelectedCurrency(savedCurrency));
+
+      // Open the persistMiddleware write-gate — restoration is complete,
+      // so it's now safe for any action from any component (in any order)
+      // to trigger a save without risk of clobbering data that hasn't been
+      // read back yet. See the comment above markHydrated() for the full
+      // story.
+      markHydrated();
+
+      let sid = sessionStorage.getItem("spf_session");
+      if (!sid) {
+        sid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        sessionStorage.setItem("spf_session", sid);
+      }
+      dispatch(setSessionId(sid));
+    }
 
     fetchSiteSettings();
     fetchCategories();

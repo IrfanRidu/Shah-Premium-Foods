@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
-import { axiosToastError, displayPrice } from "@/lib/utils";
+import { axiosToastError, displayPriceSimple, convertFromBDT, convertToBDT, CURRENCY_SYMBOLS } from "@/lib/utils";
 import toast from "react-hot-toast";
 import { LoadingBlock } from "./shared";
 
@@ -46,30 +46,41 @@ const MARKETING_FIELDS = [
 ];
 
 function NumField({ label, value, onChange, suffix, isMonetary, currency, rates }) {
-  // Item 1: these figures are entered/stored in BDT — the same convention
-  // product prices already use throughout this app — so editing always
-  // stays precise in BDT terms (no risky convert-while-typing/convert-back
-  // -on-save round-tripping). What's new is visibility: a clear BDT label
-  // plus a live "≈ [symbol][amount]" preview in whatever the current site
-  // base currency is, using the exact same displayPrice() conversion every
-  // other analytics tab already uses. Both pull from Redux, so the moment
-  // the admin changes the base currency in Site Settings, every preview
-  // here updates on its own — no save or reload needed.
-  const showConverted = isMonetary && value !== null && value !== undefined && currency && currency !== "BDT";
+  // Item 1 (round 2): the admin asked for the PRIMARY number shown to
+  // change with currency, not just a secondary hint next to a frozen BDT
+  // value (that was the first attempt at this). Figures are still stored
+  // in BDT underneath (unchanged — same convention as product prices
+  // app-wide) but the input itself now displays and accepts values in
+  // whatever `currency` currently is, converting on the way in and out via
+  // convertFromBDT/convertToBDT. Rounded to 2dp on every conversion so
+  // typing never shows floating-point noise (e.g. "100.00000000000001")
+  // after a round-trip through the conversion math.
+  const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const hasValue = value !== null && value !== undefined;
+  const displayValue = isMonetary && hasValue ? round2(convertFromBDT(value, currency, rates)) : value;
+  const symbol = isMonetary ? (CURRENCY_SYMBOLS[currency] || (currency ? currency + " " : "৳")) : null;
+  const showBdtNote = isMonetary && hasValue && currency && currency !== "BDT";
+
+  const handleChange = (e) => {
+    if (e.target.value === "") { onChange(null); return; }
+    const typed = Number(e.target.value);
+    onChange(isMonetary ? round2(convertToBDT(typed, currency, rates)) : typed);
+  };
+
   return (
     <div>
       <label className="block text-xs font-medium text-theme-muted mb-1">{label}</label>
       <div className="relative">
         <input
           type="number"
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+          value={displayValue ?? ""}
+          onChange={handleChange}
           placeholder="Not set"
           className={`input-field py-1.5 text-sm ${isMonetary ? "pl-10" : ""} ${suffix ? "input-field-suffixed" : ""}`}
         />
-        {isMonetary && (
+        {symbol && (
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-theme-muted font-medium pointer-events-none">
-            ৳
+            {symbol}
           </span>
         )}
         {suffix && (
@@ -78,8 +89,8 @@ function NumField({ label, value, onChange, suffix, isMonetary, currency, rates 
           </span>
         )}
       </div>
-      {showConverted && (
-        <p className="text-xs text-theme-muted mt-1">≈ {displayPrice(value, currency, rates)} {currency}</p>
+      {showBdtNote && (
+        <p className="text-xs text-theme-muted mt-1">stored as {displayPriceSimple(value)}</p>
       )}
     </div>
   );
@@ -89,12 +100,22 @@ export default function SettingsTab() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Item 1: same Redux fields every other analytics tab already reads —
-  // baseCurrency always reflects Site Settings (not any personal shopper
-  // override), rates come from the server's cached/live FX fetch. Both
-  // update automatically (via GlobalProvider's settings poll), so anything
-  // that reads them here re-renders in step, with no extra plumbing needed.
-  const currency = useSelector((s) => s.currency.baseCurrency);
+  // Item 1 (round 2, then generalized): switched from `baseCurrency` to
+  // `selected` on explicit request -- the admin wants amounts here to
+  // react to BOTH triggers: (a) the site's base currency changing in Site
+  // Settings, AND (b) picking a different currency from the navbar
+  // switcher. `selected` already is exactly that union (see
+  // currencySlice.js: it tracks baseCurrency automatically, but yields to
+  // a personal navbar override once one is set) -- no new state needed,
+  // just reading the other field.
+  // Update: this was originally a deliberate departure from the other 6
+  // analytics tabs, which stayed on `baseCurrency` by original design so
+  // business-reporting figures wouldn't move just because an admin
+  // happened to be personally browsing the storefront in a different
+  // currency. That was later explicitly asked to change too -- all
+  // analytics tabs now read `selected`, same as this one, so the whole
+  // dashboard is consistent.
+  const currency = useSelector((s) => s.currency.selected);
   const rates = useSelector((s) => s.currency.rates);
 
   const load = async () => {
@@ -141,9 +162,10 @@ export default function SettingsTab() {
         <p>
           These are the dependency / key values every other analytics tab's formulas rely on. Leave anything
           blank if you don't have it yet — every metric that needs it will clearly say what's missing instead
-          of showing a wrong number. Monetary figures (marked ৳) are entered in BDT; if the site's base
-          currency (Site Settings) is set to something else, a live converted preview appears under each one
-          and updates automatically — no need to re-enter anything after changing it.
+          of showing a wrong number. Monetary figures show a currency symbol and are stored as BDT underneath
+          (same as product prices everywhere in the app) — a small note under each one always shows the exact
+          BDT figure. Switch currency from the navbar, or change the site's base currency in Site Settings,
+          and every amount here updates on its own, right away.
         </p>
       </div>
 

@@ -115,9 +115,21 @@ export default function CheckoutPage() {
   );
 
   // Validation
+  // Fix (explicit request): a mobile number is no longer required on the
+  // user's PROFILE to place an order (the Profile page itself already
+  // treats it as optional — see profile/page.jsx, which never marked it
+  // required). It's still genuinely needed to place an order, though — a
+  // courier has to be able to reach whoever's receiving the delivery — so
+  // the requirement now lives on the actual delivery details for THIS
+  // order (the selected address) instead of the account profile. The
+  // Address model/form already had a `mobile` field; it's now a required
+  // field there (see dashboard/address/page.jsx) and enforced again here
+  // as a final guard before an order can be placed.
   const missingInfo = [];
   if (!user.name) missingInfo.push("name");
-  if (!user.mobile) missingInfo.push("phone number");
+
+  const selectedAddress = addressList.find((a) => a._id === selectedAddr);
+  const addressMissingMobile = !!selectedAddress && !selectedAddress.mobile;
 
   const handleOrder = async () => {
     if (missingInfo.length > 0) {
@@ -125,6 +137,10 @@ export default function CheckoutPage() {
       return;
     }
     if (!selectedAddr) { toast.error("Please select a delivery address"); return; }
+    if (addressMissingMobile) {
+      toast.error("Please add a mobile number to this delivery address before placing an order");
+      return;
+    }
     if (payment === "cash" && zones.length > 0 && !selectedZoneId) {
       toast.error("Please select a delivery zone for Cash on Delivery");
       return;
@@ -172,7 +188,7 @@ export default function CheckoutPage() {
     <div className="container mx-auto px-4 py-8">
       <h1 className="section-heading text-3xl mb-7">{t("checkout.title")}</h1>
 
-      {/* Profile info warning */}
+      {/* Profile info warning (name only — mobile is no longer required on the profile) */}
       {missingInfo.length > 0 && (
         <div className="mb-5 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
           <FaInfoCircle className="shrink-0 mt-0.5" />
@@ -180,6 +196,18 @@ export default function CheckoutPage() {
             Please add your <strong>{missingInfo.join(" and ")}</strong> in{" "}
             <Link href="/dashboard/profile" className="underline font-semibold">your profile</Link>{" "}
             before placing an order.
+          </span>
+        </div>
+      )}
+
+      {/* Delivery-address mobile number warning — required per order, not on the profile */}
+      {addressMissingMobile && (
+        <div className="mb-5 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          <FaInfoCircle className="shrink-0 mt-0.5" />
+          <span>
+            This delivery address doesn't have a mobile number yet. Please{" "}
+            <Link href="/dashboard/address" className="underline font-semibold">add one to this address</Link>{" "}
+            before placing an order — the courier needs a way to reach you.
           </span>
         </div>
       )}
@@ -209,7 +237,13 @@ export default function CheckoutPage() {
                     <div className="text-sm">
                       <p className="font-semibold">{addr.address_line}</p>
                       <p className="text-theme-muted">{[addr.city, addr.state, addr.pincode, addr.country].filter(Boolean).join(", ")}</p>
-                      {addr.mobile && <p className="text-theme-muted">{addr.mobile}</p>}
+                      {addr.mobile
+                        ? <p className="text-theme-muted">{addr.mobile}</p>
+                        : (
+                          <p className="text-amber-600 text-xs font-medium mt-0.5">
+                            No mobile number — <Link href="/dashboard/address" className="underline">add one</Link> before placing an order
+                          </p>
+                        )}
                     </div>
                   </label>
                 ))}
@@ -341,7 +375,7 @@ export default function CheckoutPage() {
 
           <button
             onClick={handleOrder}
-            disabled={loading || !selectedAddr || missingInfo.length > 0}
+            disabled={loading || !selectedAddr || missingInfo.length > 0 || addressMissingMobile}
             className="btn-primary w-full py-3 disabled:opacity-60"
           >
             {loading

@@ -10,7 +10,16 @@ import { axiosToastError, displayPrice } from "@/lib/utils";
 import { MetricCard, TabSection, DateRangePicker, LoadingBlock, MissingBanner } from "./shared";
 
 export default function FinancialTab() {
-  const currency = useSelector((s) => s.currency.baseCurrency); // item 7: admin reporting always shows the official base currency, not any personal storefront override
+  // Fix (explicit request): all analytics tabs now follow `selected`
+  // instead of `baseCurrency`, so every metric on this page reacts to BOTH
+  // triggers -- the site base currency changing in Site Settings, AND
+  // picking a different currency from the navbar switcher (by an admin or
+  // any user) -- same as the Settings tab already does (see that file's
+  // own comment for the original single-tab version of this fix).
+  // `selected` already is exactly that union: it tracks baseCurrency
+  // automatically until a personal navbar override is set (see
+  // currencySlice.js).
+  const currency = useSelector((s) => s.currency.selected);
   const rates    = useSelector((s) => s.currency.rates);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

@@ -29,7 +29,16 @@ const STATUS_COLOR_HEX = {
 const STATUS_COLOR = { Pending:"bg-yellow-100 text-yellow-700", Confirmed:"bg-blue-100 text-blue-700", "On-Hold":"bg-indigo-100 text-indigo-700", "On the way":"bg-purple-100 text-purple-700", Delivered:"bg-green-100 text-green-700", Cancelled:"bg-red-100 text-red-700", Return:"bg-orange-100 text-orange-700" };
 
 export default function DashboardTab() {
-  const currency = useSelector((s) => s.currency.baseCurrency); // item 7: admin reporting always shows the official base currency, not any personal storefront override
+  // Fix (explicit request): all analytics tabs now follow `selected`
+  // instead of `baseCurrency`, so every metric on this page reacts to BOTH
+  // triggers -- the site base currency changing in Site Settings, AND
+  // picking a different currency from the navbar switcher (by an admin or
+  // any user) -- same as the Settings tab already does (see that file's
+  // own comment for the original single-tab version of this fix).
+  // `selected` already is exactly that union: it tracks baseCurrency
+  // automatically until a personal navbar override is set (see
+  // currencySlice.js).
+  const currency = useSelector((s) => s.currency.selected);
   const rates    = useSelector((s) => s.currency.rates);
 
   const [data,    setData]    = useState(null);

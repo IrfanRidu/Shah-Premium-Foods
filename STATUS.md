@@ -1,5 +1,200 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 7 ("Continue") — SEO settings: admin UI + actual live use (item #23, closed)
+
+Picked up the highest-priority carried-forward item from Batch 3's "Still
+open" list: item #23 (SEO) had a `seo{}` block on the settings model and a
+working sitemap.js + footer link, but the admin edit UI, the actual use of
+those fields in page `<head>` metadata, and a live robots.txt route were
+all still missing — so nothing an admin could actually configure ever
+reached the live site except the sitemap itself. Closed all three gaps:
+
+1. **Admin UI** (`dashboard/site-settings/page.jsx`): new "SEO" section —
+   meta title/description/keywords, Open Graph image URL, canonical URL,
+   Google Analytics ID, Google Search Console verification ID, structured
+   data (JSON-LD, validated at save time with a non-blocking warning if
+   invalid), and robots.txt content. Uses the exact same
+   react-hook-form-nested-path + generic-merge-on-save pattern every other
+   section on this page already uses, so no backend controller changes
+   were needed for the save path itself.
+2. **Actual use in `<head>`** (`app/layout.jsx`): `generateMetadata()` now
+   reads the whole `seo{}` block — title/description fall back to
+   siteName/a sane default same as before, plus keywords, Open Graph tags,
+   canonical URL, and Search Console verification via Next's built-in
+   `verification.google` metadata field. `RootLayout` itself (now async)
+   injects the Google Analytics gtag snippet and a validated JSON-LD
+   `<script>` when those fields are set — outside what the Metadata API
+   alone can express, so done directly in the layout. Both now share one
+   `cache()`-wrapped settings fetch (`getSiteSettingsForHead`) so the
+   settings document is only queried once per request despite two
+   consumers needing it.
+3. **robots.txt** (`app/robots.txt/route.js`, new): serves whatever the
+   admin typed into the new SEO section live at `/robots.txt`, falling
+   back to `"User-agent: *\nAllow: /"` if unset or the DB is unreachable.
+   Deliberately a plain Route Handler rather than Next's `app/robots.js`
+   metadata-file convention, since that convention expects a structured
+   `{rules, sitemap}` object and generates its own text — it doesn't fit
+   serving an admin-editable free-form string the way the model already
+   stores it. No static `public/robots.txt` or `next.config` rule exists
+   to conflict with it.
+
+Also verified (no changes needed, already correct end-to-end): item #19
+(banner → landing page routing) — `Carousel.jsx`'s `bannerLandingHref()`
+and `banner-page/[id]/page.jsx`'s own lookup logic use matching
+`campaignId`/`productIds`/default-to-`/products` rules on both ends.
+
+Verified: 186 source files now (was 185), 0 syntax errors (`esbuild`
+transform pass), import/export sweep shows the same 25 pre-existing false
+positives as every prior batch (confirmed harmless) and no new issues.
+Static verification only, as before — recommend a real `npm run dev`
+check of: Site Settings → SEO → save a meta title/description/GA ID/JSON-
+LD block → view page source on the homepage to confirm the title/meta/
+script tags appear, and hit `/robots.txt` directly to confirm it echoes
+back the saved content.
+
+### 🔶 Still open / carried forward to next "Continue"
+- **#22** Liquid Glass design system consistency audit — not started this
+  round; still just the partial state noted in Batch 3.
+- **#25** Full responsive audit — still not done.
+- **#27** Google OAuth — still not started; no new dependency needed (see
+  prior note on Google Identity Services + existing JWT tooling).
+- Business Analysis tab's metric registry ~70/~80 coverage note from
+  Batch 3 — unchanged, still worth a line-by-line scan if full 1:1
+  coverage matters.
+
+---
+
+
+
+## Batch 6 — three fixes: analytics currency, coupon suggestions, order-mobile requirement
+
+### 1. Analytics dashboard now follows the navbar currency, not just the base currency
+All 7 analytics tabs (Overview/Dashboard, Financial & Growth, Inventory &
+Sales, Customer & Order, Marketing & Website, Expense Analysis, Business
+Analysis) previously read `s.currency.baseCurrency` — the admin's Site
+Settings default — regardless of what currency was picked in the navbar.
+Only the Settings tab had already been switched to `s.currency.selected`
+on an earlier explicit request (see that tab's own comment, which said
+"until/unless asked to match" — this batch is that ask). All 7 tabs now
+read `s.currency.selected`, which already tracks the base currency
+automatically until a navbar override is set — so every metric across the
+whole Analytics dashboard now updates immediately when the currency
+changes, whether that change comes from the admin's Site Settings save or
+from anyone (admin or shopper) picking a different currency in the navbar.
+
+### 2. Coupon codes are no longer suggested to users
+`CouponInput.jsx` had a "View available coupons (N)" toggle that listed
+every active coupon's code, description, and an "Apply" button — letting
+any shopper browse and use codes without earning/receiving them
+elsewhere. Removed entirely; the box is now just a plain input + Apply/
+Remove, exactly like a normal promo-code field. The unused
+`activeCoupons`/`showAll` state was also cleaned up from the component
+(the global fetch in `GlobalProvider` for that data was left as-is —
+harmless, just no longer rendered anywhere).
+
+### 3. Mobile number moved from the account profile to the order's delivery address
+Placing an order used to hard-block with "Please add your phone number in
+your profile" if the account profile's `mobile` field was empty — even
+though the Profile page itself never actually marked that field as
+required, so the block only ever really showed up at the worst possible
+moment (checkout). Per explicit request: the account profile no longer
+requires a mobile number at all; instead, the **delivery address used for
+the order** now requires one, since that's the number that actually
+matters for getting a delivery to someone.
+
+- `dashboard/address/page.jsx`: the `mobile` field on the address form is
+  now required (was optional).
+- `server/controllers/address.controller.js`: `updateAddressController`
+  now validates `mobile` the same way `addAddressController` already did,
+  so an existing address can't be edited to remove it.
+- `app/checkout/page.jsx`: dropped the profile-mobile block; added a
+  guard on the *selected address's* `mobile`, with an inline warning on
+  any address card that's missing one (with a link to fix it) plus a
+  top-of-page banner and a disabled "Place Order" button until it's set.
+- `server/controllers/order.controller.js` (defense in depth — never
+  trust the client): all three order-creation paths
+  (`cashOnDeliveryOrderController`, `payCodDeliveryChargeController`,
+  `paymentController`) now validate `address.mobile` instead of
+  `user.mobile`. `paymentController` (full online/Stripe payment)
+  previously had **no** mobile check at all — that gap is now closed too,
+  so all three payment paths are consistent. Every `customerSnapshot`
+  (including both branches of the Stripe webhook) now records the
+  delivery address's mobile as the order's contact number, falling back
+  to the profile's only if the address one is somehow still blank.
+
+Verified: 0 syntax errors across all 185 source files (`esbuild`
+transform pass) and the import/export-resolution sweep found the same 25
+pre-existing false positives as before (confirmed harmless — the
+checker's regex doesn't match `export async function`) and no new issues.
+Static verification only — a real `next build`/`npm run dev` smoke test
+is recommended for: (a) switching currency in the navbar and confirming
+every Analytics tab updates, (b) confirming no coupon list appears
+anywhere near the Apply Coupon box, (c) placing an order with an empty
+profile mobile but a valid address mobile (should succeed), and an
+address with no mobile (should be blocked with the new message).
+
+---
+
+
+
+## Batch 5 — Currency selection reverting to admin base currency on refresh (fixed)
+
+### 🐞 Bug: picking a currency from the navbar worked, but reverted to the
+admin's site-wide base currency the moment the page was refreshed
+
+**Root cause:** `GlobalProvider.jsx`'s boot effect used to call
+`dispatch(setSessionId(sid))` *before* calling `loadPersistedState()`.
+`setSessionId` is an ordinary Redux action — nothing filtered it out of
+`persistMiddleware` — so it passed straight through and immediately
+re-saved `state.currency`/`state.siteSettings` to `localStorage` using the
+store's still-default values (the store intentionally no longer preloads
+from `localStorage` — see `store.js`'s own comment on the earlier
+hydration-crash fix). That silently overwrote a previously-saved currency
+override with the defaults a few lines *before* the code ever read that
+saved data back out — so on every refresh, the restore logic was reading
+data that had already been wiped moments earlier in the same effect, and
+`fetchSiteSettings()`'s (otherwise-correct) `setBaseCurrency()` guard just
+won by default.
+
+Beyond fixing that one call-order bug, the same failure mode was
+structurally possible from *any* component: `GlobalProvider` wraps
+`{children}` in `Providers.jsx`, and React fires child effects before
+parent effects on mount, so any descendant with its own mount-time
+`dispatch()` (a cart-badge fetch, an activity log call, etc.) could
+clobber the saved data before `GlobalProvider`'s restore effect ever ran —
+a bug that could reappear on any page that later added a new mount-time
+dispatch, not just the one instance that first surfaced it.
+
+**Fix (two parts, in `src/providers/GlobalProvider.jsx` and
+`src/store/localStorageMiddleware.js`):**
+1. Reordered the boot effect so `loadPersistedState()` and the
+   theme/language/currency restore dispatches run as the very first
+   statements — before `setSessionId` or anything else.
+2. Hardened this structurally at the middleware level: `localStorage` is
+   now read once into a module-level cache at import time (before any
+   component can possibly run), and `persistMiddleware` refuses to write
+   anything until a new `markHydrated()` (exported from
+   `localStorageMiddleware.js`) has been called. `GlobalProvider` calls
+   `markHydrated()` immediately after dispatching the restored state, so
+   no action from any component, in any mount order, can ever clobber
+   saved data before it's been read back — removing the ordering
+   dependency entirely instead of just fixing the one call site that
+   happened to trigger it first.
+
+Verified: 0 syntax errors across all 185 source files (`esbuild` transform
+pass) and a full import/export-resolution sweep found no real issues (25
+initial hits were false positives from the checker's regex not matching
+`export async function`, confirmed by manual inspection of both
+`apiHandler.js` and `notification.controller.js`). A real `next build`
+still can't run in this sandbox (no network access to the Linux SWC native
+binary), so this is static verification, not a runtime test — recommend
+a real `npm run dev` smoke test of: pick a non-default currency from the
+navbar → hard refresh → confirm it's still selected (not reverted to the
+site's base currency).
+
+---
+
+
 **Read this file first on every "Continue."** It's the source of truth for
 what's done, partial, or not started. Updated at the end of every turn.
 
@@ -376,5 +571,103 @@ Same rebuilt `/home/claude/build-check/` tooling from Batch 10 (still present, s
    responsive audit, #27 Google OAuth.
 5. Re-run all three verification scripts after any further change, every time
    — remember to rebuild `/home/claude/build-check/` first if starting fresh.
+
+Just say **Continue** — this file gets read first, updated last.
+
+---
+
+## Batch 12 (direct follow-up feedback on Batch 11 item #1) — analytics currency, take 2
+
+The user came back specifically on the analytics-currency fix with two clarifications Batch 11 hadn't fully captured: (1) they want the **primary displayed amount** to change with currency, not a small secondary "≈ converted" hint sitting next to an unchanged BDT input; (2) they want it to react to the **navbar currency switcher** too, not only to the admin changing base currency in Site Settings.
+
+| # | Change | Detail |
+|---|---|---|
+| 1 | `SettingsTab.jsx` now shows/accepts values directly converted into the current currency, not a frozen BDT input + hint | Rewrote `NumField`: the input's displayed value is now `convertFromBDT(value, currency, rates)`, rounded to 2dp; typing converts back via `convertToBDT(...)` before calling the parent's `onChange`, so the underlying `settings` state (and everything sent to the backend) stays in BDT throughout — only the display layer converts. A small "stored as ৳X" note replaces the old "≈ converted" hint, same transparency goal, inverted now that the live-converted number is the primary one. Verified merely *switching* currency (without editing) never touches `onChange`/`convertToBDT` — only an actual edit round-trips through the conversion math — so passively viewing figures in a different currency causes zero drift to the real stored BDT value. |
+| 2 | `SettingsTab.jsx` now reacts to the navbar currency switcher, not just Site Settings' base currency | Re-read `currencySlice.js` closely: `baseCurrency` is the admin-set site default, and by original design (per that file's own comment, naming "analytics tabs" specifically) is what every analytics tab reads, deliberately ignoring any personal navbar override, so business-reporting figures stay stable regardless of what currency an admin happens to be browsing the storefront in. `selected` is the field the navbar switcher sets, and already tracks `baseCurrency` automatically *unless* personally overridden — i.e. it's already the exact union of both triggers the user asked for. Switched this ONE tab's `useSelector` from `baseCurrency` to `selected`. This is a deliberate, explicit-request departure from the other 6 analytics tabs, which still read `baseCurrency` only — documented clearly in-code and here rather than silently diverging, since it means Analytics → Settings can now show different currency behavior than Analytics → Financial/Business/etc. if someone changes the navbar currency without also updating Site Settings' base currency. Only touched `SettingsTab.jsx`, matching the user's own scope ("Settings section of analytic dashboard") — did not change the other 6 tabs. |
+| — | Supporting refactor in `utils.js` | Extracted the currency-symbol map that used to live only inside `displayPrice()` into an exported `CURRENCY_SYMBOLS` constant (pure refactor, `displayPrice()`'s own behavior/signature unchanged — it's used in many places across the app and this round didn't touch any of its callers). Added `convertFromBDT`/`convertToBDT` — numeric, unformatted versions of the same BDT-pivot conversion math `displayPrice()` already used, needed because `displayPrice()` returns a formatted string (`"$409.84"`), not a plain number a controlled `<input type="number">` can use. |
+
+### Verification this round
+Same `/home/claude/build-check/` tooling, still present from Batch 10/11 (same session throughout). Ran all three scripts after the rewrite: 188 files/0 syntax errors, 185 files/0 export problems, same 5 previously-confirmed false positives on `undefined_check`, no new hits. Full manual read-through of the whole rewritten file for coherence (traced `set()` → `save()` to confirm BDT-only values ever reach `settings` state or the backend payload — confirmed).
+
+### If a future session is asked to also make the other 6 analytics tabs follow the navbar switcher (for full consistency with this one)
+Same one-line change in each: swap `useSelector(s => s.currency.baseCurrency)` for `useSelector(s => s.currency.selected)`. Worth asking the user first whether they actually want that, since it reopens the exact trade-off `baseCurrency` was originally introduced (Batch 7/8) to avoid — business reporting figures shifting based on personal/incidental storefront browsing currency, across every tab rather than just Settings.
+
+Just say **Continue** — this file gets read first, updated last.
+
+---
+
+## Batch 13 (new report) — navbar currency selection reverted to base currency after a page refresh
+
+### The report
+Picking a currency from the navbar worked immediately, but after refreshing the page it reverted to the site's base currency instead of staying on the personally-picked one.
+
+### Investigation (documented in full — this one is worth being honest about)
+`currencySlice.js`'s own comment claims this already works: the whole slice is localStorage-persisted, and `GlobalProvider` is supposed to restore `selected` from storage on boot, but only as a real override (`isUserOverride: true`) — otherwise it lets the freshly-fetched base currency win. Read every file in this path in full: `localStorageMiddleware.js` (persists synchronously on every dispatch, no gap), `store.js` (documents a *prior*, related hydration-mismatch bug and its fix — real data restoration was deliberately moved into a `useEffect` in `GlobalProvider`, strictly post-hydration), `GlobalProvider.jsx` (found the restoration and the `fetchSiteSettings()` boot call lived in two *separate* `useEffect`s, in the correct declaration order), `PreferenceSelector.jsx` (dispatches correctly, reads state reactively), `currencySlice.js`'s reducers (re-verified byte-for-byte — `setBaseCurrency`'s `if (!s.isUserOverride) s.selected = next` guard is exactly right, no inverted condition or typo). Grepped the whole codebase for every currency-action dispatch site — confirmed no hidden third call site. Also checked `ProductCard.jsx` and the product detail page — both read currency reactively via `useSelector`, ruling out a "component froze a stale value" theory.
+
+Wrote and ran a Node.js simulation reproducing the exact effect/async structure (a real `Promise`+`setTimeout` standing in for the network call). It passed: the override was correctly preserved, exactly matching what the code's own design intends — React does guarantee same-commit `useEffect`s run in declaration order, and the restore effect has no `await` in it at all, so by that guarantee it should always finish before the fetch's async dispatch resolves.
+
+**Being straightforward about where this leaves things:** static reading and simulation both say the *original* two-effect code should already work, and this sandbox has no live browser to reproduce the actual race Vercel/a real browser would hit (SSR + hydration + Next.js's App Router add real complexity a Node.js simulation doesn't capture, and this project has already hit one bug in exactly this neighborhood before — see `store.js`'s hydration-mismatch comment). Rather than ship "I couldn't reproduce it so I'm leaving it," the fix below removes the cross-effect timing dependency entirely, regardless of whether that was the exact original mechanism — which either fixes the reported bug directly, or removes a genuine fragility that was one refactor away from causing this exact symptom regardless.
+
+### Fix
+Merged the two effects into one. Restoring the saved currency/theme/language now happens as the first lines of the *same* `useEffect` that calls `fetchSiteSettings()`, `fetchCategories()`, etc. — not a separate, independently-scheduled effect. This makes the ordering airtight by simple, single-function, synchronous JavaScript execution (restoration *must* finish before `fetchSiteSettings()` is even called, let alone before its `await`-gated `setBaseCurrency` dispatch resolves) — there is no longer a cross-effect timing question to reason about at all, in this sandbox or in a real browser. `src/providers/GlobalProvider.jsx` is the only file touched.
+
+### Verification this round
+Same tooling, still present. `syntax_check`: 188 files/0 errors. `export_check`: 185 files/0 problems. `undefined_check`: same 5 known false positives (one shifted line number since code moved around — checked, confirmed still the same comment-text hit, not a new issue). Noted but deliberately did not touch: `GlobalProvider.jsx` line 44 (`selectedCurrency`) is read via `useSelector` but never actually used anywhere in the component — harmless dead code (an unnecessary re-render subscription), unrelated to this bug, out of scope for this round.
+
+### If this exact symptom is somehow still reported after this fix
+The mechanism is now about as simple as this gets (one synchronous restore, then one async fetch, in that literal order, in one function) — if it still doesn't stick, the next thing to check is whether the browser's localStorage is actually being written at all (private/incognito mode, a browser extension blocking storage, or a `localStorage.setItem` quota/permissions error being silently swallowed by `persistMiddleware`'s `try {} catch {}`). Consider temporarily removing that `catch {}` to surface any write failures during a live debugging session — this sandbox has no way to trigger or observe that possibility.
+
+Just say **Continue** — this file gets read first, updated last.
+
+---
+
+## Batch 14 (user reports Batch 13 did NOT fix it) — deeper investigation, instrumentation added
+
+### The report
+"still currency is setting as admin defined base currency with refreshing after setting into a different currency from the navbar." Batch 13's effect merge did not resolve it. This is useful information on its own: it rules out cross-effect *timing* as the mechanism, since that path is now airtight by plain sequential code execution, not by relying on React's effect-ordering guarantee.
+
+### What got checked this round (in addition to everything in Batch 13)
+- `userSlice.js` + `user.model.js` for a hidden per-user currency field that `fetchUser()` might be overwriting things with — grepped, nothing found, ruled out.
+- `siteSettingsSlice.js` in full for the first time (previously only seen through a comment reference). Found it has a **real, documented, separate** bug-and-fix history for the same *class* of problem, but for theme/language, not currency (Fix 41/44/49: a DB refetch used to blindly overwrite a user's personally-chosen `activeTheme`/`activeLanguage`; fixed by preserving those two leaf fields across every refetch once the user has made a choice). Confirms this general bug class is real and has bitten this codebase before — useful context, though that specific fix doesn't touch `currencySlice` at all, so it doesn't directly explain the currency case.
+- An SSR-baked-stale-price theory: Next.js App Router server components could in principle render prices server-side, with zero awareness of a client-side personal currency choice — which would look exactly like "reverts on refresh" but wouldn't be a timing bug at all. Checked every top-level page, the root layout, `Header.jsx`, `ProductCard.jsx` — everything that touches prices is `"use client"` with reactive `useSelector` reads; the root layout only fetches data for the browser-tab title/favicon. No evidence found; theory refuted.
+- A stale-cached-JS-bundle theory (service worker, custom cache headers) — no service worker/manifest exists, no `vercel.json`, `next.config.mjs`'s `headers()` is security headers only. Next.js's own content-hashed build filenames make normal browser caching a non-issue across deployments regardless.
+- Built a temporary, minimal `createSlice()` polyfill and executed the **actual, real** `currencySlice.js` + `localStorageMiddleware.js` source files directly in Node — not a hand-written reimplementation this time, the literal project files — through the full pick-currency → persist → simulate-refresh → restore → `setBaseCurrency` sequence. Result: correctly preserved the override, using the real code. (The temporary shim was deleted before packaging — it must never ship as part of this project.)
+
+### Being straightforward about where this leaves things
+Every piece of this mechanism reachable from a static-analysis sandbox — reducers, middleware, every price-displaying component's client/server status, four separate alternate theories — checks out correct or gets ruled out. This sandbox has no live browser, so I cannot reproduce the actual failure myself. Two honest possibilities remain: (a) the deployment being tested doesn't actually include the Batch 13 fix yet, or (b) there's a genuine browser-environment-specific cause (privacy/incognito mode, an extension blocking storage, a storage quota error) that only live browser DevTools can surface. Rather than guess a third time, this round adds real instrumentation instead.
+
+### Diagnostics added (not another guess — instrumentation to get real signal)
+- `localStorageMiddleware.js`: both previously-silent `catch {}` blocks (on read and on write) now `console.warn(...)` with the actual error. Any real failure — quota exceeded, privacy-mode storage block, a non-serializable value having snuck into state, corrupted JSON — is now visible in the browser console instead of invisibly falling back to defaults with zero trace.
+- `GlobalProvider.jsx`: one `console.log("[currency-restore]", { savedCurrency, savedIsOverride, willRestore })` at the exact restore decision point. Marked in-code as temporary and safe to remove once persistence is confirmed solid across a few real refreshes.
+
+### What would help most on the next report, if this persists
+Confirm the zip actually deployed is this latest one (check the file timestamp or diff against what's live). If it is, and the bug still happens: open the browser console, refresh, and check what `[currency-restore]` logs. `savedIsOverride: true` + still reverting would point somewhere genuinely new (worth a fresh investigation with that concrete data point). `savedIsOverride: false/undefined` when it should be `true` would point at the write side — check for a `[persist]` warning in the console from right after actually clicking a currency in the navbar.
+
+Just say **Continue** — this file gets read first, updated last.
+
+---
+
+## Batch 15 — the actual root cause, found and fixed
+
+### How this one finally got solved
+The user provided real browser console output across a few exchanges — this is the difference-maker the last two batches were missing. In order: (1) right after picking EUR from the navbar, `localStorage.getItem('spf_store_v1')` correctly showed `isUserOverride: true, selected: "EUR"` — proving the write side was never broken; (2) feeding that exact real JSON through the real `loadPersistedState()` function in a standalone test confirmed the parsing was never broken either; (3) refreshing immediately after, the `[currency-restore]` diagnostic (added in Batch 14) showed `savedIsOverride: false` anyway. Data that was provably correct in storage seconds earlier was reading back as default immediately after a refresh — meaning something clobbers it *during* the refresh, after the write, before the restore.
+
+### Root cause
+Redux's own `configureStore()` — nothing this app's code does directly — dispatches an internal `@@redux/INIT...`-prefixed action through the *entire* middleware chain the instant the store is created. That happens at module-evaluation time on every fresh page load, before any component mounts, well before `GlobalProvider`'s restore-from-localStorage effect ever runs. `persistMiddleware` never filtered by action type — it saved on literally every action that passed through it, redux-internal or not. So that internal init action's pass-through save wrote the store's bare default state (no currency override at all, since nothing has restored anything yet at that point) straight to localStorage, silently overwriting whatever a previous session had legitimately saved — before the restore effect ever got a chance to read the original data.
+
+This is why the write always checked out correct, the parsing always checked out correct, and Batch 13's effect-ordering fix didn't help at all: the damage happens before React even mounts, entirely outside any component lifecycle or effect-ordering question. Three batches spent looking at the wrong layer of the stack — the bug was never in the restore logic at all, it was in an unconditional save happening one step earlier than any of this app's own code runs.
+
+Reproduced empirically before trusting this diagnosis: wrote a Node test using the real `currencySlice.js` + `localStorageMiddleware.js` source files (via a temporary, standalone `createSlice()` shim, since `@reduxjs/toolkit` isn't installable in this sandbox — deleted immediately after every test run, confirmed absent from the deliverable) that models a user picking a currency, then a simulated store-recreation firing Redux's real internal init action type through the real middleware. It reproduced the bug exactly: EUR correctly saved, then wiped by the simulated init action, before the simulated restore ever reads it.
+
+### Fix
+`localStorageMiddleware.js`'s `persistMiddleware` now skips its save step entirely when `action.type` starts with `"@@redux/"` — a long-standing, stable Redux convention covering both the INIT action and `combineReducers`' internal `PROBE_UNKNOWN_ACTION` sanity check (matching the prefix rather than an exact string handles the randomized suffix Redux appends to both).
+
+Verified with three separate tests against the updated real source file: (1) the exact bug-reproduction scenario now passes — a picked currency survives a simulated refresh; (2) a real user action (`setSelectedCurrency`) still persists completely normally — confirms the fix filters *only* Redux-internal actions, not real ones; (3) `setBaseCurrency` dispatched while an override is active still correctly leaves `selected` alone, confirming the pre-existing `isUserOverride` protection logic still works correctly *together* with this new filter, not just in isolation.
+
+### Verification this round
+Same tooling. `syntax_check`: 188 files/0 errors. `export_check`: 185 files/0 problems. `undefined_check`: same 5 known false positives, no new hits.
+
+### Note for next session
+The Batch 14 diagnostics (`[currency-restore]` console log in `GlobalProvider.jsx`, and the `[persist]` console warnings in `localStorageMiddleware.js`) are still in place. The console log was marked as temporary/removable once persistence is confirmed solid — leaving it in for one more round is deliberate, in case this fix somehow doesn't fully resolve what the user sees live (it's been wrong to be fully confident twice already in this saga, even though this round's evidence and reproduction are considerably stronger than either prior attempt). Once the user confirms a currency choice now survives a real refresh, both diagnostics are safe to remove as a small cleanup — the `[persist]` warnings are arguably worth keeping permanently though, since silently swallowing storage errors was a real, independent reliability gap regardless of this specific bug.
 
 Just say **Continue** — this file gets read first, updated last.

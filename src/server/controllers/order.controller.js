@@ -105,13 +105,20 @@ export const cashOnDeliveryOrderController = async (req, res) => {
       return res.status(400).json({ message: "Delivery address is required", error: true, success: false });
     }
 
-    // Validate that name, phone and address are set
+    // Fix (explicit request): a mobile number is no longer required on the
+    // account profile to place an order — it's still genuinely needed for
+    // delivery, so the requirement now lives on the actual delivery address
+    // for THIS order instead. addAddressController/updateAddressController
+    // already require `mobile` when an address is created/edited, so this
+    // is a final server-side guard (never trust the client) rather than the
+    // primary enforcement point.
     const user = await UserModel.findById(userId).select("name email mobile");
     if (!user?.name) {
       return res.status(400).json({ message: "Please set your name in your profile before placing an order", error: true, success: false });
     }
-    if (!user?.mobile) {
-      return res.status(400).json({ message: "Please add your phone number in your profile before placing an order", error: true, success: false });
+    const address = await AddressModel.findById(addressId);
+    if (!address?.mobile) {
+      return res.status(400).json({ message: "Please add a mobile number to this delivery address before placing an order", error: true, success: false });
     }
 
     // Authoritative subtotal + line items computed from the database — never from client math
@@ -132,7 +139,6 @@ export const cashOnDeliveryOrderController = async (req, res) => {
     // checkout (Fix 7), that zone is authoritative; otherwise it falls back to matching
     // the address city. The charge amount itself is always recomputed here, never trusted
     // from the client.
-    const address = await AddressModel.findById(addressId);
     const { charge: deliveryCharge, zoneName: deliveryZoneName, zoneId: resolvedZoneId } =
       await resolveDeliveryCharge(address?.city, subTotal, deliveryZoneId);
 
@@ -154,7 +160,11 @@ export const cashOnDeliveryOrderController = async (req, res) => {
       couponCode: coupon ? coupon.code : "",
       order_status: "Pending",
       statusHistory: [{ status: "Pending", note: "Order placed by customer", changedAt: new Date() }],
-      customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: user?.mobile || "" },
+      // The order's contact mobile is the delivery address's mobile — the
+      // number that actually matters for this order — falling back to the
+      // profile's if the address one is somehow still blank (shouldn't
+      // happen given the guard above, but keeps old data from breaking).
+      customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: address?.mobile || user?.mobile || "" },
     });
     const saved = await order.save();
 
@@ -208,6 +218,18 @@ export const paymentController = async (req, res) => {
 
     // Delivery charge resolved server-side from the address's city
     const address = await AddressModel.findById(addressId);
+
+    // Fix (explicit request): a delivery address needs a mobile number for
+    // this order to go through — same requirement as the two COD paths
+    // (cashOnDeliveryOrderController / payCodDeliveryChargeController).
+    // This path previously had no mobile check at all, which was the one
+    // real gap: an online-payment order could go through without a
+    // reachable delivery contact even though the COD paths already
+    // enforced it.
+    if (!address?.mobile) {
+      return res.status(400).json({ message: "Please add a mobile number to this delivery address before placing an order", error: true, success: false });
+    }
+
     const { charge: deliveryCharge, zoneName: deliveryZoneName } = await resolveDeliveryCharge(address?.city, subTotal);
 
     const user = await UserModel.findById(userId);
@@ -290,8 +312,12 @@ export const payCodDeliveryChargeController = async (req, res) => {
     if (!user?.name) {
       return res.status(400).json({ message: "Please set your name in your profile before placing an order", error: true, success: false });
     }
-    if (!user?.mobile) {
-      return res.status(400).json({ message: "Please add your phone number in your profile before placing an order", error: true, success: false });
+    // Fix (explicit request): mobile is no longer required on the account
+    // profile — required on the delivery address for this order instead
+    // (see cashOnDeliveryOrderController for the fuller explanation).
+    const address = await AddressModel.findById(addressId);
+    if (!address?.mobile) {
+      return res.status(400).json({ message: "Please add a mobile number to this delivery address before placing an order", error: true, success: false });
     }
 
     const { productDetails, subTotal } = await buildOrderItems(list_items);
@@ -309,7 +335,6 @@ export const payCodDeliveryChargeController = async (req, res) => {
 
     // Same zone-selection rule as the plain COD path (Fix 7): the zone the
     // customer explicitly picked at checkout is authoritative when supplied.
-    const address = await AddressModel.findById(addressId);
     const { charge: deliveryCharge, zoneName: deliveryZoneName, zoneId: resolvedZoneId } =
       await resolveDeliveryCharge(address?.city, subTotal, deliveryZoneId);
 
@@ -401,6 +426,16 @@ export const webhookStripeController = async (request, response) => {
       const session = event.data.object;
       const userId = session.metadata.userId;
       const user = await UserModel.findById(userId).select("name email mobile");
+      // Fix (explicit request): the order's contact mobile is the delivery
+      // address's mobile, not the profile's — that's the number that was
+      // actually validated as required before this session was created
+      // (see payCodDeliveryChargeController / paymentController). Falls
+      // back to the profile's only if the address one is somehow missing
+      // (shouldn't happen given those guards, but keeps old data safe).
+      const deliveryAddress = session.metadata.addressId
+        ? await AddressModel.findById(session.metadata.addressId).select("mobile")
+        : null;
+      const contactMobile = deliveryAddress?.mobile || user?.mobile || "";
 
       // ── Branch 1: COD order where only the delivery charge was prepaid ──
       if (session.metadata.orderType === "cod-delivery-charge") {
@@ -427,7 +462,7 @@ export const webhookStripeController = async (request, response) => {
           couponCode: session.metadata.couponCode || "",
           order_status: "Pending",
           statusHistory: [{ status: "Pending", note: "Order placed — delivery charge paid online, product total due in cash on delivery", changedAt: new Date() }],
-          customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: user?.mobile || "" },
+          customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
         });
         const saved = await order.save();
 
@@ -469,7 +504,7 @@ export const webhookStripeController = async (request, response) => {
         couponCode: session.metadata.couponCode || "",
         order_status: "Confirmed",
         statusHistory: [{ status: "Confirmed", note: "Payment confirmed via Stripe", changedAt: new Date() }],
-        customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: user?.mobile || "" },
+        customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
       });
       const saved = await order.save();
 

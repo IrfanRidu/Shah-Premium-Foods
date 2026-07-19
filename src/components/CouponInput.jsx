@@ -13,14 +13,12 @@ export default function CouponInput({ orderAmount }) {
   const applied       = useSelector((s) => s.coupon.appliedCoupon);
   const discount      = useSelector((s) => s.coupon.discount);
   const userId        = useSelector((s) => s.user._id);
-  const activeCoupons = useSelector((s) => s.coupon.activeCoupons);
   const cart           = useSelector((s) => s.cartItem.cart);
   const currency       = useSelector((s) => s.currency.selected);
   const rates          = useSelector((s) => s.currency.rates);
 
   const [code,    setCode]    = useState(applied?.code || "");
   const [loading, setLoading] = useState(false);
-  const [showAll, setShowAll] = useState(false);
 
   // Item 1/3: coupons can now be scoped to specific products by the admin,
   // so the server needs to see what's actually in the cart (not just a
@@ -46,7 +44,6 @@ export default function CouponInput({ orderAmount }) {
       if (r.data?.success) {
         dispatch(setAppliedCoupon(r.data.data));
         toast.success(r.data.message || "Coupon applied!");
-        setShowAll(false);
       }
     } catch (err) {
       toast.error(err?.response?.data?.message || "Invalid coupon");
@@ -92,40 +89,6 @@ export default function CouponInput({ orderAmount }) {
         <div className="flex items-center gap-2 text-green-600 bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-sm font-medium">
           <FaCheck size={12} />
           <span>"{applied.code}" applied — saving {displayPrice(discount, currency, rates)}</span>
-        </div>
-      )}
-
-      {/* Available coupons toggle */}
-      {!applied && activeCoupons.length > 0 && (
-        <div>
-          <button onClick={() => setShowAll((p) => !p)} className="text-xs text-theme-primary hover:underline">
-            {showAll ? "Hide" : "View"} available coupons ({activeCoupons.length})
-          </button>
-          {showAll && (
-            <div className="mt-2 space-y-2">
-              {activeCoupons.map((c) => (
-                <div key={c._id}
-                  className="flex items-center justify-between bg-[var(--color-bg)] border border-theme rounded-xl px-3 py-2 gap-2">
-                  <div>
-                    <span className="font-mono font-bold text-sm text-theme-primary">{c.code}</span>
-                    <p className="text-xs text-theme-muted">{c.description}</p>
-                    {c.applicableProducts?.length > 0 && (
-                      <p className="text-[11px] text-theme-muted mt-0.5">
-                        Valid on: {c.applicableProducts.slice(0, 2).map((p) => p.name).join(", ")}
-                        {c.applicableProducts.length > 2 ? ` & ${c.applicableProducts.length - 2} more` : ""}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => { setCode(c.code); apply(c.code); }}
-                    className="text-xs font-semibold text-theme-primary hover:underline shrink-0"
-                  >
-                    Apply
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

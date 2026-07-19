@@ -10,13 +10,19 @@ import { axiosToastError } from "@/lib/utils";
 import ConfirmBox from "@/components/ConfirmBox";
 import toast from "react-hot-toast";
 
+// Fix (explicit request): a mobile number is no longer required on the
+// user's account profile (see dashboard/profile/page.jsx) to place an
+// order, but it's still genuinely needed for delivery — the courier needs
+// a way to reach whoever's receiving the order. So the requirement now
+// lives here instead, on the actual delivery address used for an order,
+// where it belongs.
 const FIELDS = [
   { name:"address_line", label:"Address Line", required:true },
   { name:"city",         label:"City",         required:true },
   { name:"state",        label:"State (optional)",        required:false },
   { name:"pincode",      label:"Pincode (optional)",      required:false },
   { name:"country",      label:"Country",      required:true },
-  { name:"mobile",       label:"Mobile",       required:false },
+  { name:"mobile",       label:"Mobile (required for delivery)", required:true },
 ];
 
 function AddressForm({ defaultValues, onSave, onCancel }) {

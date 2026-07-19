@@ -86,6 +86,18 @@ export const updateAddressController = async (req, res) => {
       });
     }
 
+    // Consistency with addAddressController + the now-required "Mobile"
+    // field on the address form (dashboard/address/page.jsx) — an address
+    // needs a mobile number for delivery, so an update can't blank it out
+    // any more than a new address could be created without one.
+    if (!address_line || !city || !mobile) {
+      return res.status(400).json({
+        message: "Address line, city and mobile are required",
+        error: true,
+        success: false,
+      });
+    }
+
     const updated = await AddressModel.findOneAndUpdate(
       { _id, userId },
       { address_line, city, state, pincode, country, mobile },

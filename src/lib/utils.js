@@ -1,18 +1,45 @@
 import toast from "react-hot-toast";
 
 // ── Price display ────────────────────────────────────────────────
+// Shared across displayPrice() below and anywhere else (e.g. editable
+// currency-aware inputs) that needs a symbol without pulling in the
+// formatted-string logic. Single source of truth so this map doesn't end
+// up duplicated a third time somewhere else in the app.
+export const CURRENCY_SYMBOLS = { USD: "$", EUR: "€", INR: "₹", PKR: "₨", GBP: "£", BDT: "৳" };
+
 export const displayPrice = (price = 0, currency = "BDT", rates = null, locale = "en-BD") => {
   const num = Number(price) || 0;
   if (rates && rates[currency] && rates["BDT"] && currency !== "BDT") {
     // Convert from BDT to the selected currency via USD as pivot
     const inUSD = num / (rates["BDT"] || 122);
     const converted = inUSD * (rates[currency] || 1);
-    const symbols = { USD: "$", EUR: "€", INR: "₹", PKR: "₨", GBP: "£", BDT: "৳" };
-    const sym = symbols[currency] || currency + " ";
+    const sym = CURRENCY_SYMBOLS[currency] || currency + " ";
     return `${sym}${converted.toFixed(2)}`;
   }
   // Default: BDT
   return `৳${num.toFixed(2)}`;
+};
+
+// Numeric (unformatted) BDT <-> other-currency conversion — same pivot-
+// through-USD math as displayPrice() above, but returns a plain number
+// instead of a formatted string. displayPrice() is for read-only display;
+// these are for EDITABLE inputs that need to show and accept a value in
+// whatever currency is currently selected while the underlying data stays
+// stored in BDT (the app's canonical currency, same as product prices).
+export const convertFromBDT = (bdtValue, currency, rates) => {
+  const num = Number(bdtValue);
+  if (!Number.isFinite(num)) return bdtValue;
+  if (!rates || !currency || currency === "BDT" || !rates[currency] || !rates["BDT"]) return num;
+  const inUSD = num / (rates["BDT"] || 122);
+  return inUSD * (rates[currency] || 1);
+};
+
+export const convertToBDT = (value, currency, rates) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return value;
+  if (!rates || !currency || currency === "BDT" || !rates[currency] || !rates["BDT"]) return num;
+  const inUSD = num / (rates[currency] || 1);
+  return inUSD * (rates["BDT"] || 122);
 };
 
 // Shorthand used throughout components — pulls from Redux in the component itself
