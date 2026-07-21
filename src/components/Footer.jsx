@@ -3,6 +3,7 @@ import { useSelector } from "react-redux";
 import { useTranslation } from "@/lib/i18n";
 import Link from "next/link";
 import { FaFacebook, FaInstagram, FaTwitter, FaYoutube, FaMapMarkerAlt, FaPhone, FaEnvelope } from "react-icons/fa";
+import { safeExternalUrl } from "@/lib/utils";
 
 export default function Footer() {
   const { t }    = useTranslation();
@@ -64,7 +65,7 @@ export default function Footer() {
             {links.length > 0
               ? links.map((lnk, i) => (
                   <li key={i}>
-                    <Link href={lnk.url || "/"} className="opacity-75 hover:opacity-100 transition-opacity">
+                    <Link href={safeExternalUrl(lnk.url, "/")} className="opacity-75 hover:opacity-100 transition-opacity">
                       {lnk.label}
                     </Link>
                   </li>
@@ -86,10 +87,10 @@ export default function Footer() {
         <div>
           <h4 className="font-semibold mb-4 uppercase tracking-widest text-xs opacity-60">{col3Title}</h4>
           <div className="flex gap-4 text-xl mb-5">
-            {social.facebook  && <a href={social.facebook}  target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Facebook"><FaFacebook /></a>}
-            {social.instagram && <a href={social.instagram} target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Instagram"><FaInstagram /></a>}
-            {social.twitter   && <a href={social.twitter}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Twitter"><FaTwitter /></a>}
-            {social.youtube   && <a href={social.youtube}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="YouTube"><FaYoutube /></a>}
+            {social.facebook  && <a href={safeExternalUrl(social.facebook)}  target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Facebook"><FaFacebook /></a>}
+            {social.instagram && <a href={safeExternalUrl(social.instagram)} target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Instagram"><FaInstagram /></a>}
+            {social.twitter   && <a href={safeExternalUrl(social.twitter)}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Twitter"><FaTwitter /></a>}
+            {social.youtube   && <a href={safeExternalUrl(social.youtube)}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="YouTube"><FaYoutube /></a>}
             {!social.facebook && !social.instagram && !social.twitter && !social.youtube && (
               <p className="opacity-50 text-sm">No social links yet.</p>
             )}

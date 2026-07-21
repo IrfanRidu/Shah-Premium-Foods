@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
@@ -18,6 +18,26 @@ export default function LoginPage() {
   const dispatch = useDispatch();
   const router   = useRouter();
   const { fetchCartItems, fetchAddress } = useGlobalContext();
+
+  // Security hardening: this form always submits via handleSubmit (which
+  // calls preventDefault internally), so credentials should never end up
+  // in the URL through normal use of this page. But if a `?password=...`
+  // (or `?email=...`) ever shows up here anyway — a bookmarked/shared
+  // link, a misconfigured integration, a browser extension, or someone
+  // just testing by pasting it into the address bar — the right response
+  // is to scrub it from the URL immediately without ever reading or using
+  // the value, rather than leaving it sitting in the address bar, browser
+  // history, and any Referer header sent to third-party resources this
+  // page loads (Google Fonts, and Google Analytics if configured). This
+  // never auto-fills or auto-submits the form with those values — doing
+  // that would just move the same problem into JS memory/state instead of
+  // actually fixing it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("password") || params.has("email")) {
+      router.replace("/login");
+    }
+  }, [router]);
 
   const onSubmit = async (data) => {
     try {

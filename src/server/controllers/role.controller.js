@@ -23,19 +23,33 @@ const EMPTY_PERMS = () => ({
   analytics: { view:false }, settings:{view:false,edit:false}, roles:{view:false,create:false,edit:false,delete:false},
 });
 
-// Ensure SUPERADMIN/ADMIN/MODERATOR/EMPLOYEE/ANALYST/USER system roles exist
+// Ensure SUPERADMIN/ADMIN/MANAGER/STAFF/ANALYST/USER system roles exist.
+// Security audit: MANAGER/STAFF are the exact role names requested
+// (previously named MODERATOR/EMPLOYEE — same permission scoping, just
+// relabeled + renamed to match "Admin / Manager / Staff / Customer"
+// literally rather than functionally-equivalent-but-differently-named
+// roles). ANALYST is kept as a bonus read-only reporting role beyond the
+// requested four — harmless extra, not a replacement for any of them.
 export const ensureSystemRoles = async () => {
   const defaults = [
     { name: "SUPERADMIN", label: "Super Admin", description: "Full unrestricted access to everything, including role management.", isSystemRole: true, permissions: FULL_PERMS(false) },
     { name: "ADMIN",      label: "Admin",       description: "Full store management access, excluding role/user-permission management.", isSystemRole: true, permissions: FULL_PERMS(true) },
-    { name: "MODERATOR",  label: "Moderator",   description: "Can manage products, categories, orders and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, products:{view:true,create:true,edit:true,delete:false}, categories:{view:true,create:true,edit:true,delete:false}, orders:{view:true,edit:true,cancel:true}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:true} } },
-    { name: "EMPLOYEE",   label: "Employee",    description: "Can view and process orders, view inventory and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, orders:{view:true,edit:true,cancel:false}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
+    { name: "MANAGER",    label: "Manager",     description: "Can manage products, categories, orders and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, products:{view:true,create:true,edit:true,delete:false}, categories:{view:true,create:true,edit:true,delete:false}, orders:{view:true,edit:true,cancel:true}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:true} } },
+    { name: "STAFF",      label: "Staff",       description: "Can view and process orders, view inventory and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, orders:{view:true,edit:true,cancel:false}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
     { name: "ANALYST",    label: "Analyst",     description: "Read-only access to analytics, orders and inventory for reporting.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, analytics:{view:true}, orders:{view:true,edit:false,cancel:false}, customers:{view:true,export:true,call:false}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
     { name: "USER",       label: "Customer",    description: "Regular storefront customer.", isSystemRole: true, permissions: EMPTY_PERMS() },
   ];
   for (const r of defaults) {
     await RoleModel.findOneAndUpdate({ name: r.name }, { $setOnInsert: r }, { upsert: true, new: true });
   }
+  // Migrate any existing installs: the old system roles were named
+  // MODERATOR/EMPLOYEE — relabel them in place (rather than leaving
+  // orphaned duplicate roles) so any user already assigned one keeps
+  // working under the new name with the exact same permissions.
+  await RoleModel.updateOne({ name: "MODERATOR" }, { $set: { name: "MANAGER", label: "Manager" } });
+  await RoleModel.updateOne({ name: "EMPLOYEE" },  { $set: { name: "STAFF",   label: "Staff" } });
+  await UserModel.updateMany({ role: "MODERATOR" }, { $set: { role: "MANAGER" } });
+  await UserModel.updateMany({ role: "EMPLOYEE" },  { $set: { role: "STAFF" } });
 };
 
 // GET all roles

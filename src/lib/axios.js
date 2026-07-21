@@ -61,10 +61,23 @@ Axios.interceptors.response.use(
           const { data } = await axios.post(`${baseURL}/api/user/refresh-token`, {}, {
             headers: { Authorization: `Bearer ${refresh}` },
           });
-          const newToken = data?.data?.accessToken;
-          if (newToken) {
-            localStorage.setItem("accessToken", newToken);
-            orig.headers.Authorization = `Bearer ${newToken}`;
+          const newAccessToken  = data?.data?.accessToken;
+          const newRefreshToken = data?.data?.refreshToken;
+          if (newAccessToken) {
+            localStorage.setItem("accessToken", newAccessToken);
+            // Security audit: refresh tokens now ROTATE on every use (see
+            // refreshTokenController) — the token just sent is invalid the
+            // instant this response comes back, whether or not it was
+            // still within its normal expiry. The response always
+            // includes the new one now; without saving it here, the VERY
+            // NEXT refresh attempt would replay the already-used old
+            // token from localStorage, which the backend would correctly
+            // recognize as reuse of an already-rotated token and respond
+            // to by revoking every session on the account — i.e. this one
+            // missing line would turn "seamless silent refresh" into
+            // "randomly logged out everywhere," so this isn't optional.
+            if (newRefreshToken) localStorage.setItem("refreshToken", newRefreshToken);
+            orig.headers.Authorization = `Bearer ${newAccessToken}`;
             return Axios(orig);
           }
         } catch {}

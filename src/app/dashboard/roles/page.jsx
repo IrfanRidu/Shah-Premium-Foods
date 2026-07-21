@@ -183,7 +183,7 @@ export default function RolesPage() {
       )}
 
       <p className="text-xs text-theme-muted mt-6">
-        System roles (SUPERADMIN, ADMIN, MODERATOR, EMPLOYEE, ANALYST, USER) cannot be deleted but their permissions can be customized.
+        System roles (SUPERADMIN, ADMIN, MANAGER, STAFF, ANALYST, USER) cannot be deleted but their permissions can be customized.
         Assign roles to specific staff members from the Customers page.
       </p>
 

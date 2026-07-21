@@ -47,7 +47,21 @@ const orderSchema = new mongoose.Schema(
     refundNote: { type: String, default: "" },
     refundedAt: { type: Date, default: null },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    // Database security audit (Section 7 — optimistic concurrency): every
+    // `.save()` on an Order in this codebase is either a brand-new order
+    // being created (no conflict possible) or an admin status update —
+    // and status updates go through `order.save()` after loading the
+    // document in updateOrderStatusController/cancelOwnOrderController.
+    // If two admins update the same order's status at nearly the same
+    // moment, this now makes the second one fail with a clear conflict
+    // instead of silently overwriting the first admin's change (e.g. one
+    // marks it "Cancelled" while another marks it "Shipped" — without
+    // this, whichever write lands last silently wins with no trace of
+    // the other ever happening).
+    optimisticConcurrency: true,
+  }
 );
 
 orderSchema.index({ order_status: 1, createdAt: -1 });

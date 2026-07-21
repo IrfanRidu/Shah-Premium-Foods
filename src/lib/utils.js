@@ -51,6 +51,43 @@ export const priceWithDiscount = (price = 0, discount = 0) => {
 };
 
 // ── URL helpers ──────────────────────────────────────────────────
+// Security audit (XSS): admin-configurable link fields (footer social
+// links, quick links) get rendered straight into an <a href={...}> for
+// every site visitor with no scheme validation. An admin-role account
+// (which, per the RBAC audit, now includes MANAGER/STAFF — not just
+// SUPERADMIN) could store `javascript:...` as a "Facebook URL" and it
+// would execute in any visitor's browser who clicks it — a stored-XSS
+// vector via a settings field, not user-submitted content, but a real one.
+// Only allow the schemes an <a href> is actually supposed to have.
+const SAFE_URL_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"]);
+export const safeExternalUrl = (url = "", fallback = "#") => {
+  if (!url) return fallback;
+  // Relative/site-internal paths ("/about", "#section") are always fine —
+  // they can't carry a scheme at all.
+  if (url.startsWith("/") || url.startsWith("#")) return url;
+  try {
+    const parsed = new URL(url, "https://placeholder.invalid");
+    return SAFE_URL_SCHEMES.has(parsed.protocol) ? url : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+// Security/optimization audit (Section 6): delivery-time WebP conversion
+// for Cloudinary URLs, for use at specific <img>/CSS background call
+// sites that are known to only ever render the image visually (never fed
+// to jsPDF, never fetched raw for re-processing, etc.) — see
+// uploadImageCloudinary.js's own comment for why this isn't forced at
+// upload time instead. Cloudinary's `f_webp,q_auto` URL transformation
+// segment converts format and applies automatic quality/compression on
+// the fly, and — being a fresh transform, not the stored original — also
+// doesn't carry over the original's EXIF/GPS metadata.
+export const cloudinaryWebpUrl = (url = "") => {
+  if (!url || !url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
+  if (url.includes("/upload/f_webp")) return url; // already transformed, don't double up
+  return url.replace("/upload/", "/upload/f_webp,q_auto/");
+};
+
 export const validURLConvert = (name = "", id = "") => {
   const slug = name
     .toString()

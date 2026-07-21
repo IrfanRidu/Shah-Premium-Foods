@@ -27,7 +27,7 @@ const exportCSV = (customers) => {
   URL.revokeObjectURL(url);
 };
 
-const ROLES = ["USER","ADMIN","MODERATOR","EMPLOYEE","ANALYST","SUPERADMIN"];
+const ROLES = ["USER","ADMIN","MANAGER","STAFF","ANALYST","SUPERADMIN"];
 
 export default function AdminUsersPage() {
   const myRole   = useSelector((s) => s.user.role);

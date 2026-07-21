@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import OrderModel from "../models/order.model.js";
 import CartProductModel from "../models/cartProduct.model.js";
 import UserModel from "../models/user.model.js";
@@ -32,12 +33,16 @@ const resolveCoupon = async (code, productDetails, userId) => {
   return { discount, coupon };
 };
 
-const markCouponUsed = async (coupon, userId, orderId) => {
+const markCouponUsed = async (coupon, userId, orderId, session) => {
   if (!coupon) return;
-  await CouponModel.findByIdAndUpdate(coupon._id, {
-    $inc: { usedCount: 1 },
-    $push: { usedBy: { userId, orderId, usedAt: new Date() } },
-  });
+  await CouponModel.findByIdAndUpdate(
+    coupon._id,
+    {
+      $inc: { usedCount: 1 },
+      $push: { usedBy: { userId, orderId, usedAt: new Date() } },
+    },
+    { session }
+  );
 };
 
 // Safe-number helper — never lets NaN/undefined/strings reach a Mongoose Number field
@@ -78,17 +83,60 @@ const buildOrderItems = async (list_items) => {
   return { productDetails, subTotal: Math.round(subTotal * 100) / 100 };
 };
 
-const decrementStockAndLog = async (productDetails, orderId, userId) => {
+// Database security audit (Section 7 — transactions + optimistic
+// concurrency): this used to read a product's current stock, compute
+// `newStock` in JS, then write that computed value back — a classic
+// read-then-write race condition. Two orders for the same product placed
+// at nearly the same moment could both read the SAME starting stock,
+// both compute the same decremented value, and the second write would
+// silently clobber the first — one of the two decrements is lost, and the
+// product ends up overstocked relative to what was actually sold. Worse:
+// `Math.max(0, previousStock - item.quantity)` meant insufficient stock
+// was silently clamped to zero and the order went through anyway —
+// overselling was possible with no error at all.
+//
+// Fixed with a single atomic conditional update:
+// `findOneAndUpdate({ _id, stock: { $gte: quantity } }, { $inc: { stock:
+// -quantity } })`. MongoDB executes the match-and-modify as one atomic
+// operation — there's no window between "read the stock" and "write the
+// new stock" for another request to land in, so two concurrent orders for
+// the last unit of a product can't both succeed. If the condition doesn't
+// match (not enough stock left), the update simply returns null instead
+// of writing anything, and this now throws a real error instead of
+// silently overselling.
+// `allowOversell`: the COD path (payment not yet taken) uses the default
+// strict behavior — reject if stock is insufficient, so the customer sees
+// a clear error before anything is charged. The Stripe webhook path
+// (payment ALREADY captured by the time this runs) passes
+// `allowOversell: true` instead — rejecting an order at that point would
+// mean keeping the customer's money with no order and no product, which
+// is a worse outcome than a temporary oversold state an admin can see and
+// address via the inventory log this still writes either way. Both modes
+// still use the same atomic `$inc`, so the race-condition fix applies
+// regardless of which mode is used.
+const decrementStockAndLog = async (productDetails, orderId, userId, session, allowOversell = false) => {
   for (const item of productDetails) {
-    const product = await ProductModel.findById(item.productId);
-    if (!product) continue;
-    const previousStock = product.stock;
-    const newStock = Math.max(0, previousStock - item.quantity);
-    await ProductModel.findByIdAndUpdate(item.productId, { stock: newStock });
+    if (item.quantity <= 0) continue;
+    const filter = allowOversell
+      ? { _id: item.productId }
+      : { _id: item.productId, stock: { $gte: item.quantity } };
+    const product = await ProductModel.findOneAndUpdate(
+      filter,
+      { $inc: { stock: -item.quantity } },
+      { new: true, session }
+    );
+    if (!product) {
+      if (allowOversell) continue; // product no longer exists at all — nothing sane to log against
+      throw new Error(`Insufficient stock for "${item.name}". Please refresh your cart and try again.`);
+    }
     await new InventoryLogModel({
       productId: item.productId, type: "sale", quantity: item.quantity,
-      previousStock, newStock, note: `Order ${orderId}`, createdBy: userId, reference: orderId,
-    }).save();
+      previousStock: product.stock + item.quantity, newStock: product.stock,
+      note: allowOversell && product.stock < 0
+        ? `Order ${orderId} (oversold — payment already captured, stock went negative)`
+        : `Order ${orderId}`,
+      createdBy: userId, reference: orderId,
+    }).save({ session });
   }
 };
 
@@ -143,35 +191,64 @@ export const cashOnDeliveryOrderController = async (req, res) => {
       await resolveDeliveryCharge(address?.city, subTotal, deliveryZoneId);
 
     const finalTotal = safeNum(Math.round(Math.max(0, subTotal - discount + deliveryCharge) * 100) / 100, subTotal);
-    
-    const order = new OrderModel({
-      userId,
-      orderId: generateOrderId(),
-      productDetails,
-      paymentId: "",
-      payment_status: "CASH ON DELIVERY",
-      delivery_address: addressId,
-      subTotalAmt: subTotal,
-      discountAmt: discount,
-      deliveryCharge: safeNum(deliveryCharge, 0),
-      deliveryZoneName: deliveryZoneName || "",
-      deliveryZoneId: resolvedZoneId || null,
-      totalAmt: finalTotal,
-      couponCode: coupon ? coupon.code : "",
-      order_status: "Pending",
-      statusHistory: [{ status: "Pending", note: "Order placed by customer", changedAt: new Date() }],
-      // The order's contact mobile is the delivery address's mobile — the
-      // number that actually matters for this order — falling back to the
-      // profile's if the address one is somehow still blank (shouldn't
-      // happen given the guard above, but keeps old data from breaking).
-      customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: address?.mobile || user?.mobile || "" },
-    });
-    const saved = await order.save();
 
-    await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } });
-    await decrementStockAndLog(productDetails, saved.orderId, userId);
-    if (coupon) await markCouponUsed(coupon, userId, saved.orderId);
-    // Fix 4: notify admins/agents of the new order
+    // Database security audit (Section 7 — transactions): everything from
+    // "create the order" through "clear the cart" now runs as one
+    // all-or-nothing MongoDB transaction. Before this, each step was an
+    // independent write — if the process crashed or threw between, say,
+    // the stock decrement and the order actually saving, the result was
+    // permanently corrupted state (stock gone with no order to show for
+    // it, or a coupon marked used with no order). Requires a replica set,
+    // which MongoDB Atlas (including the free M0 tier) already runs as by
+    // default; a bare standalone `mongod` does not support transactions —
+    // see SETUP.md if self-hosting without a replica set.
+    const session = await mongoose.startSession();
+    let saved;
+    try {
+      await session.withTransaction(async () => {
+        const order = new OrderModel({
+          userId,
+          orderId: generateOrderId(),
+          productDetails,
+          paymentId: "",
+          payment_status: "CASH ON DELIVERY",
+          delivery_address: addressId,
+          subTotalAmt: subTotal,
+          discountAmt: discount,
+          deliveryCharge: safeNum(deliveryCharge, 0),
+          deliveryZoneName: deliveryZoneName || "",
+          deliveryZoneId: resolvedZoneId || null,
+          totalAmt: finalTotal,
+          couponCode: coupon ? coupon.code : "",
+          order_status: "Pending",
+          statusHistory: [{ status: "Pending", note: "Order placed by customer", changedAt: new Date() }],
+          // The order's contact mobile is the delivery address's mobile —
+          // the number that actually matters for this order — falling
+          // back to the profile's if the address one is somehow still
+          // blank (shouldn't happen given the guard above, but keeps old
+          // data from breaking).
+          customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: address?.mobile || user?.mobile || "" },
+        });
+        saved = await order.save({ session });
+
+        await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } }, { session });
+        // Throws (aborting the whole transaction) if any item's stock ran
+        // out between the cart page and this exact moment — see this
+        // function's own comment for the atomic-conditional-update
+        // mechanics that make that check itself race-free too.
+        await decrementStockAndLog(productDetails, saved.orderId, userId, session);
+        if (coupon) await markCouponUsed(coupon, userId, saved.orderId, session);
+
+        await CartProductModel.deleteMany({ userId }, { session });
+        await UserModel.updateOne({ _id: userId }, { shopping_cart: [] }, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    // Fix 4: notify admins/agents of the new order — deliberately outside
+    // the transaction (not core order data, and no reason a notification
+    // hiccup should roll back a successful order).
     createNotification({
       type: "new_order",
       title: `New order ${saved.orderId}`,
@@ -180,9 +257,6 @@ export const cashOnDeliveryOrderController = async (req, res) => {
       targetModule: "orders",
       relatedId: saved._id,
     });
-
-    await CartProductModel.deleteMany({ userId });
-    await UserModel.updateOne({ _id: userId }, { shopping_cart: [] });
 
     const populated = await OrderModel.findById(saved._id).populate("delivery_address").populate("userId", "name email mobile");
 
@@ -445,29 +519,52 @@ export const webhookStripeController = async (request, response) => {
         const { productDetails } = await buildOrderItems(snapshotItems);
         const deliveryCharge = safeNum(session.metadata.deliveryCharge, 0);
 
-        const order = new OrderModel({
-          userId,
-          orderId: generateOrderId(),
-          productDetails,
-          paymentId: session.payment_intent,
-          payment_status: "COD (Delivery Charge Paid Online)",
-          delivery_address: session.metadata.addressId || undefined,
-          subTotalAmt: safeNum(session.metadata.subTotalAmt, 0),
-          discountAmt: safeNum(session.metadata.discountAmt, 0),
-          deliveryCharge,
-          deliveryChargePaidOnline: true,
-          deliveryZoneName: session.metadata.deliveryZoneName || "",
-          deliveryZoneId: session.metadata.deliveryZoneId || null,
-          totalAmt: safeNum(session.metadata.totalAmt, 0),
-          couponCode: session.metadata.couponCode || "",
-          order_status: "Pending",
-          statusHistory: [{ status: "Pending", note: "Order placed — delivery charge paid online, product total due in cash on delivery", changedAt: new Date() }],
-          customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
-        });
-        const saved = await order.save();
+        // Database security audit (Section 7 — transactions): same
+        // reasoning as cashOnDeliveryOrderController's own comment —
+        // order creation, stock, coupon usage, and cart-clearing now run
+        // as one atomic transaction here too. `allowOversell: true` on
+        // the stock decrement specifically because Stripe has ALREADY
+        // captured payment by the time this webhook fires — see
+        // decrementStockAndLog's own comment for why rejecting here would
+        // be the wrong tradeoff.
+        const dbSession = await mongoose.startSession();
+        let saved;
+        try {
+          await dbSession.withTransaction(async () => {
+            const order = new OrderModel({
+              userId,
+              orderId: generateOrderId(),
+              productDetails,
+              paymentId: session.payment_intent,
+              payment_status: "COD (Delivery Charge Paid Online)",
+              delivery_address: session.metadata.addressId || undefined,
+              subTotalAmt: safeNum(session.metadata.subTotalAmt, 0),
+              discountAmt: safeNum(session.metadata.discountAmt, 0),
+              deliveryCharge,
+              deliveryChargePaidOnline: true,
+              deliveryZoneName: session.metadata.deliveryZoneName || "",
+              deliveryZoneId: session.metadata.deliveryZoneId || null,
+              totalAmt: safeNum(session.metadata.totalAmt, 0),
+              couponCode: session.metadata.couponCode || "",
+              order_status: "Pending",
+              statusHistory: [{ status: "Pending", note: "Order placed — delivery charge paid online, product total due in cash on delivery", changedAt: new Date() }],
+              customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
+            });
+            saved = await order.save({ session: dbSession });
 
-        await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } });
-        await decrementStockAndLog(productDetails, saved.orderId, userId);
+            await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } }, { session: dbSession });
+            await decrementStockAndLog(productDetails, saved.orderId, userId, dbSession, true);
+            if (session.metadata.couponId) {
+              const coupon = await CouponModel.findById(session.metadata.couponId).session(dbSession);
+              if (coupon) await markCouponUsed(coupon, userId, saved.orderId, dbSession);
+            }
+            await CartProductModel.deleteMany({ userId }, { session: dbSession });
+            await UserModel.updateOne({ _id: userId }, { shopping_cart: [] }, { session: dbSession });
+          });
+        } finally {
+          await dbSession.endSession();
+        }
+
         createNotification({
           type: "new_order",
           title: `New order ${saved.orderId}`,
@@ -476,12 +573,6 @@ export const webhookStripeController = async (request, response) => {
           targetModule: "orders",
           relatedId: saved._id,
         });
-        if (session.metadata.couponId) {
-          const coupon = await CouponModel.findById(session.metadata.couponId);
-          if (coupon) await markCouponUsed(coupon, userId, saved.orderId);
-        }
-        await CartProductModel.deleteMany({ userId });
-        await UserModel.updateOne({ _id: userId }, { shopping_cart: [] });
         break;
       }
 
@@ -489,27 +580,45 @@ export const webhookStripeController = async (request, response) => {
       const lineItems = await stripe.checkout.sessions.listLineItems(session.id);
       const productDetails = await getOrderProductItems(lineItems);
 
-      const order = new OrderModel({
-        userId,
-        orderId: generateOrderId(),
-        productDetails,
-        paymentId: session.payment_intent,
-        payment_status: session.payment_status,
-        delivery_address: session.metadata.addressId || undefined,
-        subTotalAmt: safeNum(session.metadata.subTotalAmt, 0),
-        discountAmt: safeNum(session.metadata.discountAmt, 0),
-        deliveryCharge: safeNum(session.metadata.deliveryCharge, 0),
-        deliveryZoneName: session.metadata.deliveryZoneName || "",
-        totalAmt: safeNum(session.metadata.totalAmt, 0),
-        couponCode: session.metadata.couponCode || "",
-        order_status: "Confirmed",
-        statusHistory: [{ status: "Confirmed", note: "Payment confirmed via Stripe", changedAt: new Date() }],
-        customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
-      });
-      const saved = await order.save();
+      const dbSession2 = await mongoose.startSession();
+      let saved;
+      try {
+        await dbSession2.withTransaction(async () => {
+          const order = new OrderModel({
+            userId,
+            orderId: generateOrderId(),
+            productDetails,
+            paymentId: session.payment_intent,
+            payment_status: session.payment_status,
+            delivery_address: session.metadata.addressId || undefined,
+            subTotalAmt: safeNum(session.metadata.subTotalAmt, 0),
+            discountAmt: safeNum(session.metadata.discountAmt, 0),
+            deliveryCharge: safeNum(session.metadata.deliveryCharge, 0),
+            deliveryZoneName: session.metadata.deliveryZoneName || "",
+            totalAmt: safeNum(session.metadata.totalAmt, 0),
+            couponCode: session.metadata.couponCode || "",
+            order_status: "Confirmed",
+            statusHistory: [{ status: "Confirmed", note: "Payment confirmed via Stripe", changedAt: new Date() }],
+            customerSnapshot: { name: user?.name || "", email: user?.email || "", mobile: contactMobile },
+          });
+          saved = await order.save({ session: dbSession2 });
 
-      await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } });
-      await decrementStockAndLog(productDetails, saved.orderId, userId);
+          await UserModel.updateOne({ _id: userId }, { $push: { orderHistory: saved._id } }, { session: dbSession2 });
+          // allowOversell: true — payment is already captured by Stripe at
+          // this point (this is the payment-confirmation webhook), same
+          // reasoning as Branch 1 above.
+          await decrementStockAndLog(productDetails, saved.orderId, userId, dbSession2, true);
+          if (session.metadata.couponId) {
+            const coupon = await CouponModel.findById(session.metadata.couponId).session(dbSession2);
+            if (coupon) await markCouponUsed(coupon, userId, saved.orderId, dbSession2);
+          }
+          await CartProductModel.deleteMany({ userId }, { session: dbSession2 });
+          await UserModel.updateOne({ _id: userId }, { shopping_cart: [] }, { session: dbSession2 });
+        });
+      } finally {
+        await dbSession2.endSession();
+      }
+
       createNotification({
         type: "new_order",
         title: `New order ${saved.orderId}`,
@@ -518,14 +627,7 @@ export const webhookStripeController = async (request, response) => {
         targetModule: "orders",
         relatedId: saved._id,
       });
-      if (session.metadata.couponId) {
-        const coupon = await CouponModel.findById(session.metadata.couponId);
-        if (coupon) await markCouponUsed(coupon, userId, saved.orderId);
-      }
-      await CartProductModel.deleteMany({ userId });
-      await UserModel.updateOne({ _id: userId }, { shopping_cart: [] });
 
-      const populated = await OrderModel.findById(saved._id).populate("delivery_address").populate("userId", "name email mobile");
       break;
     }
     default:

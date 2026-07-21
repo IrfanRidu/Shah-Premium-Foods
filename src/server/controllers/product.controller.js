@@ -79,8 +79,16 @@ export const getProductsController = async (req, res) => {
       : { publish: true };
     const skip = (page - 1) * limit;
 
+    // Database security/performance audit (Section 7 — lean queries):
+    // `.lean()` skips Mongoose document hydration (change tracking,
+    // virtuals, instance methods) for queries whose results are only ever
+    // read and serialized straight into a JSON response, never mutated —
+    // exactly this case. Applied to this and the other public, read-only,
+    // high-traffic product-browsing queries below; not a full audit of
+    // every read query in the app (23 controllers is a lot of ground),
+    // but the highest-traffic ones are covered.
     const [data, totalCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("category").populate("subCategory"),
+      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("category").populate("subCategory").lean(),
       ProductModel.countDocuments(query),
     ]);
 
@@ -100,7 +108,7 @@ export const getProductsByCategoryController = async (req, res) => {
     const skip = (page - 1) * limit;
     const query = { category: { $in: [id] }, publish: true };
     const [data, totalCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       ProductModel.countDocuments(query),
     ]);
     return res.json({ message: "Products fetched successfully", error: false, success: true,
@@ -120,7 +128,7 @@ export const getProductsByCategoryAndSubCategoryController = async (req, res) =>
     const skip = (page - 1) * limit;
     const query = { category: { $in: [categoryId] }, subCategory: { $in: [subCategoryId] } };
     const [data, dataCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       ProductModel.countDocuments(query),
     ]);
     return res.json({ message: "Products fetched successfully", error: false, success: true,
@@ -134,7 +142,7 @@ export const getProductsByCategoryAndSubCategoryController = async (req, res) =>
 export const getProductDetailsController = async (req, res) => {
   try {
     const { productId } = req.body;
-    const product = await ProductModel.findById(productId).populate("category").populate("subCategory");
+    const product = await ProductModel.findById(productId).populate("category").populate("subCategory").lean();
     if (!product) return res.status(404).json({ message: "Product not found", error: true, success: false });
     return res.json({ message: "Product details fetched successfully", error: false, success: true, data: product });
   } catch (error) {
@@ -224,7 +232,7 @@ export const searchProductController = async (req, res) => {
       };
     }
 
-    let data = await ProductModel.find(query).sort({ createdAt: -1 }).limit(term ? 200 : limit);
+    let data = await ProductModel.find(query).sort({ createdAt: -1 }).limit(term ? 200 : limit).lean();
 
     if (term) {
       // Rank prefix matches (name starts with the term) above mid-string

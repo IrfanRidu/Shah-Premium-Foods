@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
@@ -14,6 +14,16 @@ function Inner() {
   const router  = useRouter();
   const params  = useSearchParams();
   const email   = params.get("email") || "";
+
+  // Security hardening — see login/page.jsx's own comment for the full
+  // reasoning. `email` here is legitimate (passed through from the OTP
+  // verification step, not sensitive on its own) and is left alone —
+  // only a stray password-shaped param gets scrubbed.
+  useEffect(() => {
+    if (params.has("password") || params.has("newPassword") || params.has("confirmPassword")) {
+      router.replace(email ? `/reset-password?email=${encodeURIComponent(email)}` : "/reset-password");
+    }
+  }, [params, router, email]);
 
   const onSubmit = async ({ password }) => {
     try {

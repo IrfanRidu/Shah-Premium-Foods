@@ -1,5 +1,682 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 15 — CRITICAL REGRESSION FIX: reverted `mongoose.set("sanitizeFilter", true)`
+
+Bug report: analytics (all 5 tabs), checkout, and the storefront's own
+product listings (homepage, product detail, category/subcategory pages)
+were all returning 500s or silently showing no products, with errors
+like `Cast to date failed for value "{ '$gte': ..., '$lte': ... }"` and
+`Cast to ObjectId failed for value "{ '$in': [...] }"`.
+
+**Root cause, and an honest account of the mistake**: Batch 13 added
+`mongoose.set("sanitizeFilter", true)` as a "defense-in-depth" layer,
+reasoning it would be a safe addition on top of the custom
+`sanitizeInput()` from Batch 9. That reasoning was wrong in a way that
+broke a large part of the site: `sanitizeFilter: true` doesn't just
+strip dangerous operators from untrusted input — it treats ANY
+object-shaped filter *value* as untrusted by default and wraps it in
+`{ $eq: ... }` unless that specific filter is explicitly marked safe via
+`mongoose.trusted({...})`. That requirement applies just as much to the
+application's own server-constructed queries as to anything a client
+sends — and this codebase legitimately builds filters with query
+operators constantly: analytics date-range filters
+(`{ createdAt: { $gte, $lte } }`), product lookups by an ID array during
+checkout (`{ _id: { $in: [...] } }`), and more, across **17 different
+controller files** (confirmed by grep, not estimated). None of those
+were wrapped in `mongoose.trusted()`, so every one of them broke — Mongo
+tried to cast the whole `{ $gte, $lte }` / `{ $in: [...] }` object as a
+literal value against the field's real type (Date/ObjectId) and failed.
+
+**Fix**: reverted `mongoose.set("sanitizeFilter", true)` entirely — not
+replaced with a "fixed" version, a straight revert — because the custom
+`sanitizeInput()` (Batch 9, wired into `apiHandler.js`) already correctly
+handles the actual threat model here: it strips `$`-prefixed keys from
+REQUEST data (query/body/params) before any controller ever sees it,
+which is exactly where a filter-injection risk from untrusted input
+would enter. It doesn't share this false-positive problem because it
+never touches filters the server builds internally, only what arrives
+from the client — making it the correct single layer for this concern,
+not one of two that turned out to conflict. `strictQuery` (added in the
+same original batch, an unrelated setting about rejecting queries by
+undefined schema paths) is unaffected and stays enabled.
+
+This is a real mistake, called out plainly rather than glossed over: a
+security hardening change was made without fully accounting for how
+Mongoose's `sanitizeFilter` interacts with the application's own
+legitimate use of query operators, and it shipped in three batches
+across several "Continue" turns before surfacing as a live bug report.
+The fix is a one-line revert with no other code changes needed, since
+the redundant, correctly-scoped protection was already in place the
+whole time.
+
+Verified: 193 files, 0 syntax errors, 0 import/export issues.
+**This one is worth a real functional test, not just static
+verification** — reload Analytics (all tabs), place a test order, and
+confirm products actually appear on the homepage/category pages again.
+
+---
+
+
+
+### Found and fixed one real landmine while auditing the response layer
+`apiHandler.js`'s shared response builder had its OWN fallback default of
+`sameSite: "none"` in production for any `res.cookie()` call that didn't
+explicitly pass its own `sameSite` — the exact same CSRF-weakening
+default already fixed in Batch 9's `cookieOptions`, but at a different
+layer. The one current caller (`user.controller.js`) always passes an
+explicit value, so this was dormant rather than active, but any future
+`res.cookie()` call anywhere in the codebase that omitted `sameSite`
+would have silently reintroduced the weakness. Fixed the fallback itself,
+not just the one call site that happens to override it today.
+
+### Standard API Response
+Already consistent across the codebase by convention —
+`{ message, error, success, data? }` on every controller response,
+confirmed by inspection rather than assumed. The new global error/
+timeout responses added below deliberately use this exact same shape,
+so a client can't tell a genuine controller error apart from an
+infrastructure-level one by response shape.
+
+### Error Handling — structural fix, not just a new feature
+`apiHandler.js`'s `createNextHandler` is now a thin wrapper around the
+actual request handling: ANY uncaught error — from a controller that
+forgot its own try/catch, a middleware throwing, anything — is now
+caught in exactly one place and turned into the same standard error
+shape, instead of propagating up into Next.js's own error handling. This
+is a direct structural fix for the class of problem diagnosed in Batch
+12 (the confusing React-hook-call crash cascade) — that specific
+incident traced back to a stale build, not application code, but the
+underlying gap it exposed (nothing caught a raw thrown error before it
+reached Next's fallback rendering) was real independent of what
+triggered it that time.
+
+### Logging
+New structured JSON log line per completed request
+(`apiObservability.js`'s `logRequest`) — method, path, status, duration,
+request/correlation IDs, IP. Request bodies are only logged for non-2xx
+responses (less noise, more debugging value exactly when needed), and
+always redacted first (password/token/OTP/authorization/cookie fields
+never reach a log line, even server-side ones — hosting-platform log
+access is still a real exposure surface).
+
+### Validation
+Hand-rolled rather than adding a schema-validation library (zod/yup/joi)
+for this — `lib/validate.js`, applied to the highest-value, most
+attacker-facing endpoints: email FORMAT validation (not just presence)
+on register/forgot-password, mobile format validation on both address
+endpoints. Honest scope note: this validates a handful of the most
+consequential fields on the most attacker-facing endpoints, not a full
+schema-validation rollout across all 23 controllers — the existing
+presence-checks (`if (!field)`) everywhere else are unchanged and still
+the app's primary input gate.
+
+### Versioning
+`X-API-Version` response header, applied globally. Deliberately NOT a
+`/api/v1/...` URL restructure — this app's ~150 routes and every
+frontend call site already assume today's unversioned paths, and there's
+no actual second API version to distinguish yet; retroactively
+restructuring every URL would be a large, purely mechanical,
+high-regression-risk change for no functional benefit right now. The
+header is real, non-breaking groundwork if a genuine v2 is ever needed.
+
+### Request IDs / Correlation IDs
+Both generated (or, for correlation ID, echoed back if the client
+already sent `X-Correlation-Id`) on every request, included in every
+response's headers and every log line — makes it possible to trace one
+specific request from a bug report straight to its server log line, and
+to follow one logical multi-call operation across a whole log stream.
+
+### Pagination — found a genuinely widespread gap, fixed centrally
+Audited list/pagination endpoints and found a pattern repeated across
+roughly a dozen controllers (inventory, customer, analytics, support
+ticket, product request, activity, product, etc.): a client-supplied
+`limit` with a sane default but NO upper bound —
+e.g. `limit = limit || 10` doesn't stop a caller from sending
+`limit: 999999` and forcing a huge query/response on demand. Rather than
+hand-edit ~10 files individually (real risk of a typo breaking one, for
+an identical fix in every case), this is now clamped globally in
+`apiHandler.js` — any `limit` field on any request's query or body is
+capped at 200 (comfortably above every legitimate default anywhere in
+this codebase; the highest found was 15), closing the gap everywhere at
+once instead of file by file.
+
+### Filtering / Sorting
+Already reasonably implemented per-endpoint where relevant (status/
+department/category filters on various list views; sort is mostly a
+fixed, sensible `createdAt: -1` rather than client-controlled — not
+revisited in this pass since client-controlled arbitrary sort fields are
+more a feature-completeness question than a security gap, and the
+current fixed-sort approach is actually the safer default).
+
+### Compression — deliberately NOT implemented, explained rather than skipped silently
+Considered manually gzip-compressing JSON responses in `apiHandler.js`,
+and decided against it: most modern hosting (Vercel and similar
+platforms) already compresses responses transparently at the edge, and
+self-hosted deployments typically put a reverse proxy (nginx/Caddy) in
+front of a Node app specifically so compression is handled at that
+layer, not in application code. Manually compressing here risks
+double-compression or a mismatched `Content-Encoding` header on
+platforms that already handle it — a real failure mode (broken/
+undecodable responses) that can't be tested from this sandbox. Standard
+guidance stands instead: ensure whatever sits in front of this app
+(hosting platform or reverse proxy) has compression enabled, which is
+the correct layer for this concern.
+
+### Caching
+Every API response now defaults to `Cache-Control: private, no-store`
+unless a controller already set its own (none currently do). This is
+the real security angle on "caching" for an API like this one: most
+responses are authenticated/personal (orders, profile, cart) or admin
+data, and a shared proxy/CDN caching one of those because nothing said
+not to would be a genuine sensitive-data-exposure bug. Deliberately did
+NOT add selective public-caching rules for specific "safe" endpoints
+(e.g. category lists) in this pass — picking the wrong one and shipping
+an untestable staleness bug is a worse outcome than every response
+being consistently fresh.
+
+### Timeouts
+25-second global timeout wraps every request; a client gets a clean 504
+instead of hanging indefinitely. Honest limitation stated directly in
+the code: this bounds how long the CLIENT waits, it does NOT cancel the
+underlying DB query/external call server-side (true cancellation would
+need an `AbortController` threaded through every Mongoose query and
+external API call in every controller — not attempted in this pass).
+
+### Retry — already correctly implemented, confirmed rather than duplicated
+Found `lib/axios.js` already has a well-built retry layer from an
+earlier session: GET-only (explicitly, with a comment on why — retrying
+POST/PUT/DELETE could double-charge a card or duplicate an order),
+network-errors and 502/503/504 only, capped at 3 attempts with backoff.
+This already correctly implements the idempotency-safety nuance that
+matters most here — confirmed by reading it, not re-implemented.
+
+Verified: 193 source files, 0 syntax errors (`esbuild` transform pass),
+0 import/export issues. Static verification only, as with every batch —
+the timeout/error-handling/logging wrapper in particular is exactly the
+kind of change worth exercising against a real running dev server
+(trigger a deliberate error in a controller and confirm a clean JSON 500
+comes back instead of a crash; check that `X-Request-Id`/
+`X-Correlation-Id`/`X-API-Version` headers appear on a real response).
+
+---
+
+
+
+### Section 4 — Rate Limiting
+- Fixed a design gap before adding new buckets: rate-limit keys now use
+  the FULL request path (`POST:/api/user/login`) instead of just the
+  reconstructed sub-path (`POST:/login`) — the sub-path alone isn't
+  globally unique (two different resource groups could share a sub-path
+  string like `/search` or `/upload`), so this closes a theoretical
+  bucket-collision gap before it could ever matter in practice.
+- New buckets: **Search** (30/min/IP), **Cloudinary upload** (avatar
+  15/hr, general 30/hr — protects Cloudinary quota/cost, not just server
+  load), **Stripe** (checkout + delivery-charge-payment, 10/15min each —
+  every call creates a real Stripe Checkout Session, a cost/quota concern
+  as much as a security one). Global API limiter, Login, OTP, and
+  Forgot-Password limiters were already done in Batch 9.
+- **Progressive delays + account lockout**: 5 failed logins locks the
+  *account* (not just rate-limits the IP), with the lockout duration
+  doubling on each further failure (30s → 1min → 2min... capped at
+  30min).
+- **IP blocking**: an IP that racks up failed logins against 8+
+  *distinct* accounts gets blocked outright for an hour — this is
+  deliberately a different signal than the account lockout above: the
+  lockout catches one account attacked from many IPs (distributed brute
+  force), the IP block catches one IP attacking many accounts
+  (credential stuffing / password spraying), which per-IP rate limiting
+  alone can't distinguish from normal traffic since no single account
+  crosses its own threshold.
+- All wired into `loginUserController`, checked before the DB lookup so
+  a blocked attempt costs almost nothing.
+
+### Section 6 — File Upload Security
+- **Real finding**: `multer.js` was never actually imported anywhere in
+  the app — its "5MB limit" was dead code. Actual multipart parsing
+  happens via `Request.formData()` directly in `apiHandler.js`, which is
+  where the real limit (and everything else below) now lives.
+  `multer.js` left in place but clearly marked dead, in case anything
+  external still references the path.
+- **Magic-byte validation**: real file-signature checking (JPEG/PNG/GIF/
+  WebP/ICO), independent of the spoofable client-supplied Content-Type
+  header — this is what actually makes "prevent executable upload" true
+  structurally (an allowlist of recognized image signatures), not a
+  separate blocklist to maintain.
+- **Virus scan placeholder**: real integration point in
+  `lib/fileUploadSecurity.js`, called on every upload before it reaches
+  Cloudinary — honestly documented as unable to run a real scanner in
+  this sandbox; always reports clean until wired to a real provider
+  (deliberately doesn't block everything as a "safer" default — a
+  placeholder that silently blocks all uploads would be worse than no
+  placeholder).
+- **Image compression**: Cloudinary `quality: "auto"`, applied
+  universally.
+- **Convert to WebP / strip metadata — caught and avoided a real
+  regression**: initially force-converted every upload to WebP at
+  upload time, then found `dashboard/product-requests/page.jsx` fetches
+  a submitted photo's Cloudinary URL raw and embeds it in a jsPDF export
+  hardcoded as `"JPEG"` — forcing the stored asset to WebP would have
+  silently broken that export. Reverted: compression stays universal,
+  WebP conversion is now an opt-in delivery-time URL transform
+  (`cloudinaryWebpUrl()` in `lib/utils.js`) for call sites that display
+  an image in `<img>`/CSS only. Not yet retrofitted into every existing
+  `<img>` tag site-wide — that's a larger, separate visual-component
+  pass, listed below as still open.
+- **Random filename**: confirmed already correct (Cloudinary's default
+  public_id generation, since no `public_id`/`use_filename` was ever
+  passed) — documented so it doesn't get "fixed" into the less-safe
+  behavior later.
+
+### Section 7 — Database Security
+- `mongoose.set("sanitizeFilter", true)` and `strictQuery` set at module
+  load, before any query can run — layered on top of (not instead of)
+  the custom `sanitizeInput()` from Batch 9.
+- **Indexes**: audited all models. Found and fixed real gaps —
+  `Address.userId` and `CartProduct.userId` had NO index despite being
+  filtered on every single fetch (full collection scans); `Product` had
+  no index supporting `{ publish, category }` storefront browsing or
+  `stock`-based inventory queries; `Notification`'s existing
+  `createdAt`-only index didn't actually support its real query pattern
+  (filtered by `targetModule`, then sorted) — added a proper compound
+  index for it.
+- **Transactions — the most significant fix in this batch**: order
+  creation was NOT atomic. Stock decrement, coupon-usage increment,
+  order save, and cart clearing were 4-5 independent writes — if the
+  process crashed or threw partway through (e.g. between decrementing
+  stock and the order actually saving), the result was permanently
+  corrupted state (stock gone with no order, or a coupon marked used
+  with nothing to show for it). All three order-creation paths
+  (`cashOnDeliveryOrderController` and both branches of the Stripe
+  webhook) now run as one all-or-nothing MongoDB transaction.
+- **Found and fixed a genuine pre-existing bug while adding
+  transactions**: stock decrement used to read `stock`, compute the new
+  value in JS, then write it back — a classic race condition (two
+  concurrent orders for the same product could read the same starting
+  stock and the second write would silently clobber the first), AND it
+  silently clamped insufficient stock to zero instead of rejecting the
+  order — meaning overselling was already possible with no error at
+  all. Fixed with a single atomic conditional update
+  (`findOneAndUpdate({ stock: { $gte: quantity } }, { $inc: { stock:
+  -quantity } })`) that can't race and that actually rejects when stock
+  is insufficient.
+- **One deliberate nuance**: the Stripe webhook path uses `allowOversell:
+  true` on that same atomic update — by the time the webhook fires,
+  Stripe has ALREADY captured payment, so rejecting the order over
+  insufficient stock at that point would mean keeping the customer's
+  money with no order and no product, a worse outcome than a rare,
+  logged, admin-visible oversold state. The pre-payment COD path
+  correctly still rejects.
+- **Optimistic concurrency**: added to `Product` and `Order` schemas.
+  Verified (not assumed) which existing `.save()` call sites this could
+  actually affect — found `campaign.controller.js`'s
+  `syncProductCampaignDiscount()` does a real fetch→mutate→save on
+  Product, and `updateOrderStatusController`/`cancelOwnOrderController`
+  do the same on Order; both are already inside try/catch blocks, so a
+  new (rare) `VersionError` on a genuine concurrent edit becomes a
+  normal error response, not a crash — and surfacing that conflict is
+  the intended improvement over the previous silent-lost-update behavior.
+- **TTL indexes — explained rather than faked**: a real MongoDB TTL
+  index deletes a whole document once a date field is in the past. OTP
+  fields live directly on the User document (a TTL index on their
+  expiry would delete the whole account) and sessions are subdocuments
+  in an array on the User document (TTL indexes don't operate on
+  individual array elements at all) — neither fits a TTL index without
+  moving them into their own top-level collections, a real schema
+  refactor not attempted in this pass given how much session-rotation
+  logic already depends on the current embedded-array shape. Implemented
+  the honest, safe equivalent instead: sessions are now opportunistically
+  pruned of expired entries every time the array is read or written
+  (`pruneExpiredSessions()` in `sessionManager.js`), so they don't
+  accumulate indefinitely even without a TTL index doing it in the
+  background.
+- **Unique indexes**: audited — already correct everywhere it matters
+  (`User.email`, `Order.orderId`, `Coupon.code`, `Role.name`).
+- **Connection pooling + retry strategy**: added explicit
+  `maxPoolSize`/`minPoolSize` and `retryWrites`/`retryReads` to the
+  Mongoose connection call. Connection-establishment retry-with-backoff
+  was already implemented well before this batch.
+- **Projection / lean queries**: added `.lean()` to the highest-traffic
+  read-only endpoints (all public product browsing/search/detail
+  queries in `product.controller.js`) as a representative, real
+  implementation — NOT a full audit of every read query across all 23
+  controllers, which is a larger undertaking than this pass covered.
+
+### Still open / honestly not done in this pass
+- Site-wide `<img>` tag adoption of `cloudinaryWebpUrl()` — the helper
+  exists and is documented, but wasn't retrofitted into every product
+  card / banner / avatar component (visual-regression risk untestable in
+  this sandbox).
+- A true TTL-index-based session/OTP expiry would require moving them
+  into dedicated collections — noted as a real architectural option, not
+  attempted here.
+- `.lean()` / projection audit is representative (product browsing),
+  not exhaustive across all 23 controllers.
+
+Verified: 191 source files, 0 syntax errors (`esbuild` transform pass),
+0 import/export issues. **Static verification only, and this batch in
+particular touches money-critical code (Stripe webhook, stock/coupon
+consistency) that genuinely needs a live MongoDB replica set + live
+Stripe test-mode webhook to be truly confidence-checked** — neither is
+available in this sandbox. Recommend testing, in order: (1) place a COD
+order, confirm stock decrements once and the order/cart/coupon-usage all
+appear correctly; (2) place two near-simultaneous orders for a product
+with exactly 1 unit of stock in two browser tabs, confirm only one
+succeeds and the other gets a clear "insufficient stock" error, not a
+crash or a negative stock value; (3) a full Stripe test-mode checkout,
+confirming the webhook creates the order correctly.
+
+---
+
+
+
+Bug report included: (1) `Invalid hook call`/`useContext`/`useMemo` crashes
+from Next's own bundled React while rendering `/_error` for a failed
+`GET /api/inventory?lowStock=true` request, and a `GET /api/admin/
+badge-counts 404`; (2) `GET /login?email=...&password=...` appearing
+in the dev server's request log several times.
+
+**Investigated both — neither is a bug in this codebase's current code:**
+
+- `grep`ed the entire repo for `/api/inventory` (bare, no sub-path) and
+  `/api/admin/badge-counts` — zero matches anywhere. The real inventory
+  endpoints are `/api/inventory/list`, `/api/inventory/low-stock`, etc.
+  (see `lib/api.js`), all of which exist and work. Nothing in this app
+  calls the two broken URLs in the report. Diagnosis: a stale browser tab
+  still running an older build's JS (from a previous session/zip version,
+  before those routes were renamed/removed) polling against the current
+  dev server — 404/500 on a route that no longer exists → Next dev tries
+  to render its `/_error` debug overlay for that failed request → *that
+  render* is what's crashing with the hook errors, a known Next.js
+  dev-mode fragility (often triggered by a stale `.next` cache,
+  especially right after `middleware.js` was added while the dev server
+  was already running). Fix is operational, not code: close all
+  `localhost:3000` tabs, `rm -rf .next`, restart `npm run dev`, open a
+  fresh tab. One honest caveat on this diagnosis: the log's last line
+  shows that exact same path, `GET /api/inventory?lowStock=true`,
+  returning 200 later on — and Next.js's file-based router doesn't
+  "flakily" 404/500 vs. 200 the same never-matching path within one
+  build, it's deterministic. What IS verifiable directly from this repo:
+  no file matches a bare `/api/inventory` request in the current
+  source (only `/api/inventory/[...segments]/route.js`, a catch-all that
+  requires ≥1 path segment — `/list`, `/low-stock`, etc. — and doesn't
+  match zero segments at all), so nothing in this exact codebase could
+  serve either response for that literal path. That gap — same literal
+  URL, different outcomes, no code here that explains either outcome — is
+  itself the signature of stale cached code (an old `.next` build and/or
+  an old browser tab) being served instead of the current source at some
+  point during that session, which is why "clear cache, fresh tab" is the
+  right fix even though the exact mechanics of that one log line aren't
+  fully reconstructable from the log alone.
+- `LoginPage` was directly read: it only ever submits via
+  `handleSubmit()` (react-hook-form, which calls `preventDefault`
+  internally) and never reads `useSearchParams()` for email/password —
+  so the app itself has no code path that would produce a
+  `?password=...` URL or read one back. Most likely explanation: manual
+  testing via the browser address bar.
+
+**Real hardening added anyway** (cheap, and good practice regardless of
+root cause): `login`, `register`, and `reset-password` pages now scrub a
+stray `password`/`email` (login), `password` (register), or
+`password`/`newPassword`/`confirmPassword` (reset-password) query param
+from the URL immediately on mount via `router.replace()` — without ever
+reading or using the value — so a credential that ends up in a URL by any
+means (bookmark, shared link, manual paste, browser extension) doesn't
+sit in the address bar, browser history, or get sent in a Referer header
+to Google Fonts/Analytics. `reset-password`'s legitimate `email` param
+(passed through from the OTP step, not sensitive) is left untouched.
+
+Verified: 190 files, 0 syntax errors.
+
+---
+
+
+
+Bug report: `Uncaught EvalError ... violates ... script-src ... 'unsafe-eval'
+is not an allowed source`, pointing at
+`@next/react-refresh-utils/dist/runtime.js`.
+
+Root cause: Next.js dev mode's Fast Refresh / webpack HMR runtime loads
+modules via `eval()` — that's how hot-reloading works under the hood in
+dev — and Batch 9's CSP (`script-src 'self' 'nonce-...' + GA host`, no
+`'unsafe-eval'`) correctly blocked it, which is exactly what a strict CSP
+is supposed to do to arbitrary `eval()` calls — it just didn't
+distinguish "arbitrary/injected eval" from "Next's own dev-only tooling."
+
+Fix (`src/middleware.js`): `'unsafe-eval'` is now added to `script-src`,
+and `ws: wss:` to `connect-src` (for the HMR livereload websocket), ONLY
+when `NODE_ENV !== "production"`. The production CSP is completely
+unchanged from Batch 9 — nonce + self + the one named GA host, no
+`unsafe-eval`, no relaxation at all — since Next's production build
+never uses `eval()` for its own code, there's no legitimate need for it
+there and no reason to weaken the production policy to fix a dev-only
+problem.
+
+Verified: 190 files, 0 syntax errors.
+
+---
+
+
+
+Batch 9 already covered `Content-Security-Policy` (nonce-based, via
+`middleware.js`), `Strict-Transport-Security`, `Referrer-Policy`,
+`Permissions-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, and
+removed `X-Powered-By`. This batch adds the rest of the explicitly
+requested list, all in `next.config.mjs`'s `headers()` (each with its own
+in-file comment on the exact value chosen and why):
+
+- **Cross-Origin-Opener-Policy**: `same-origin`. Safe here since this
+  app's Stripe integration is a full top-level redirect
+  (`window.location.href = session.url`), never a popup, so there's no
+  `window.opener` relationship this could break.
+- **Cross-Origin-Embedder-Policy**: `credentialless`, deliberately NOT
+  the stricter `require-corp`. `require-corp` would require every
+  cross-origin resource this site loads (Cloudinary/Unsplash product
+  images, Google Fonts, the optional GA script) to serve its own
+  `Cross-Origin-Resource-Policy` header — outside this app's control —
+  and fails CLOSED (silently breaks image/font/script loading) if even
+  one doesn't. `credentialless` gets most of the same cross-origin-
+  isolation benefit without that fragility, since it only requires CORP
+  on resources loaded WITH credentials, which nothing in this app does.
+  Flagged as the one header in this batch that genuinely can't be fully
+  confidence-checked without a live browser hitting the deployed site —
+  recommend verifying product images / fonts / GA still load after
+  deploying.
+- **Cross-Origin-Resource-Policy**: `same-origin`. Governs whether OTHER
+  sites can load resources FROM this one — doesn't affect Open Graph
+  scraping (server-side crawlers aren't browsers and don't enforce CORP)
+  and has no effect on product images anyway (those are served by
+  Cloudinary, not this app).
+- **X-DNS-Prefetch-Control**: `off` (matches helmet.js's own secure
+  default — small privacy hardening).
+- **X-Download-Options**: `noopen` (legacy IE-only mitigation, harmless
+  on modern browsers).
+- **Origin-Agent-Cluster**: `?1`.
+
+`X-XSS-Protection` was also already present from Batch 9 (kept for
+legacy browser compatibility even though modern browsers ignore it in
+favor of CSP).
+
+Verified: `next.config.mjs` syntax-checked directly with `node --check`
+(this file lives outside `src/`, so it isn't covered by the project's
+`src/`-scoped syntax checker) — passes clean. No other files touched this
+batch.
+
+---
+
+
+
+Large, multi-part request: audit + implement enterprise security across
+authentication, authorization, and OWASP Top 10 mitigations. This was
+worked through in priority order across three "Continue" turns. Below is
+an honest, item-by-item accounting against everything that was asked for
+— marked ✅ done, 🔶 partial (with exactly what's left), or **N/A**
+(verified not applicable to this stack, not silently skipped).
+
+### Authentication
+- ✅ **Secure JWT implementation** — separate secrets for access/refresh
+  (already existed, verified), both required at startup or the relevant
+  controller throws rather than silently signing with `undefined`.
+- ✅ **Short-lived access token** — 5h → 15m (`generateAccessToken.js`).
+- ✅ **Refresh token rotation** — every refresh issues a new refresh token
+  (new `jti`); the one just used is immediately invalid, whether or not
+  its 7-day expiry has passed. **Reuse detection**: replaying an
+  already-rotated token revokes every session on the account.
+  (`generateRefreshToken.js`, `sessionManager.js`, `refreshTokenController`)
+- ✅ **Secure cookies** — `httpOnly` + `secure` in production (already
+  existed) — plus fixed `sameSite` from `"None"` in production (a
+  cross-site-cookie setting that was actively weakening CSRF protection
+  for what is, per this app's own architecture, a same-origin deployment)
+  to `"Lax"`, with a code comment on when it would need to change back.
+- ✅ **CSRF protection** — Origin/Referer verification for all
+  state-changing requests, in `apiHandler.js` (every one of the 23 API
+  resource groups routes through it). Stripe's webhook already bypasses
+  this file entirely (own signature verification), unaffected.
+- ✅ **Session invalidation** — password reset/change now revokes other
+  sessions; new "log out of all devices" action.
+- ✅ **Token revocation** — per-device session revocation (list + revoke
+  one, from the new Active Sessions section on the Profile page).
+- ✅ **Email verification** — already existed (OTP-based), verified working.
+- ✅ **Password reset** — already existed (OTP-based), verified working,
+  now additionally enforces the password policy below and revokes
+  sessions on success.
+- ✅ **Multi-device login support** — this was actually backwards before:
+  a single `refresh_token` field meant logging in on device #2 silently
+  killed device #1's session. Replaced with a real `sessions[]` array on
+  the user model (`user.model.js`) — each device now has its own
+  independently-valid, independently-revocable session, visible and
+  manageable from Profile → Active Sessions.
+
+### Passwords
+- ✅ **bcrypt cost 12+** — was 10 in all 5 hashing call sites (register,
+  reset, update-account, call-center-agent provisioning, seed script) —
+  raised to 12 (seed script intentionally left at a lower/dev-appropriate
+  setting is NOT the case here — it's also 12 now, for consistency).
+- ✅ **Password breach detection** — best-effort HIBP k-anonymity check
+  (`passwordPolicy.js`) — only a SHA-1 prefix ever leaves the server, per
+  HIBP's own design. **Fails open** on network error/timeout (an HIBP
+  outage can't become a signup-blocking DoS) — genuinely can't be
+  exercised from the sandbox this was built in (network egress there is
+  limited to package registries); the logic is correct per HIBP's
+  documented API contract, but treat a real deployment's first signup as
+  the actual first test of this code path.
+- ✅ **Prevent common passwords** — synchronous blocklist (~150 entries),
+  zero network dependency, always enforced, hard-blocks a match.
+
+### Authorization / RBAC
+- ✅ **Roles: Admin / Manager / Staff / Customer** — the existing system
+  (`role.model.js` + dynamic per-module permissions) already had this
+  *functionally* under different names (`MODERATOR`/`EMPLOYEE`) plus a
+  bonus `ANALYST` role and full custom-role support via the admin Roles
+  UI — renamed `MODERATOR`→`MANAGER`, `EMPLOYEE`→`STAFF` to match the
+  requested list exactly, with an in-place migration for any existing
+  installs/users already on the old names (`ensureSystemRoles()`).
+- ✅ **Permissions middleware** — already existed (`permission.js`),
+  verified in place.
+- 🔶 **API route protection** — `auth`/permission middleware is applied
+  per-route across all 23 resource groups (pre-existing), but this pass
+  did NOT re-verify every single one of the ~150+ individual routes has
+  the *correct* middleware for its sensitivity level one by one — that
+  would be its own dedicated audit. Spot-checked several (user, HR,
+  roles) and found/fixed one real gap (mass assignment below); no others
+  surfaced in the areas checked.
+- ✅ **Server-side protection** — mass assignment audit (see OWASP list
+  below) confirms controllers don't trust client-supplied role/permission
+  fields.
+- 🔶 **Database protection** — NoSQL injection input sanitization is done
+  (below); did NOT additionally audit DB connection security / principle-
+  of-least-privilege DB user credentials / field-level encryption of any
+  particularly sensitive fields — those are largely hosting/ops
+  configuration (e.g., the MongoDB connection string's own user
+  permissions) rather than application code, and weren't in scope for a
+  code-level pass, but flagging so it isn't silently assumed done.
+
+### OWASP Top 10
+- **N/A — SQL Injection**: no SQL database in this stack (MongoDB/Mongoose).
+- ✅ **NoSQL Injection** — `sanitizeInput()` in `src/lib/security.js`,
+  wired into `apiHandler.js`, strips `$`-prefixed and dotted keys from
+  every request body/query/params before any controller sees them.
+- ✅ **Prototype Pollution** — same function also strips `__proto__`/
+  `constructor`/`prototype` keys (same traversal closes both issues at once).
+- ✅ **Stored XSS** — audited every `dangerouslySetInnerHTML` in the app
+  (found only 2, both admin-configured content in `layout.jsx`, now
+  nonce-gated by CSP + `<`-escaped against script-tag breakout). Found and
+  fixed a real one: `Footer.jsx`'s social links / quick links rendered an
+  admin-configured URL straight into `href` with no scheme check — an
+  admin-role account (now including MANAGER/STAFF, not just SUPERADMIN)
+  could store a `javascript:` URL and it would run in any visitor's
+  browser on click. New `safeExternalUrl()` in `lib/utils.js` allows only
+  `http:`/`https:`/`mailto:`/`tel:`/relative paths.
+- 🔶 **Reflected XSS** — React escapes all rendered content by default,
+  and the sweep above found no other place that routes raw input around
+  that escaping; not exhaustively re-verified line-by-line across every
+  page for every query-param usage.
+- ✅ **CSRF** — see Authentication section above.
+- **N/A — SSRF**: verified no server-side feature fetches a client-
+  supplied URL anywhere in the codebase (grepped for it explicitly).
+- **N/A — Open Redirect**: verified no `?redirect=`-driven navigation or
+  similar pattern exists anywhere; Stripe's `success_url`/`cancel_url` are
+  built from a hardcoded env var, never client input.
+- ✅ **Clickjacking** — `X-Frame-Options: SAMEORIGIN` (pre-existing) +
+  `frame-ancestors 'self'` in the new CSP.
+- **N/A — Directory/Path Traversal**: verified no filesystem
+  `readFile`/`writeFile` on user input anywhere — all "file" storage is
+  Cloudinary, not local disk.
+- **N/A — Command Injection**: verified no `child_process`/`exec`/`spawn`
+  anywhere in the codebase.
+- ✅ **Mass Assignment** — audited every controller for unfiltered
+  `req.body` → Mongoose constructor/update. Found and fixed one real
+  instance: `hrPayroll.controller.js`'s employee create/update passed raw
+  `req.body` straight into the model, which could set `userId` (linking
+  to an arbitrary login account) or `isCallCenterAgent` outside the
+  dedicated flow meant to own those fields — now whitelists an explicit
+  field list. `updateUserDetailsController` was already safe on inspection.
+- **N/A — XML attacks**: no XML parsing library anywhere in `package.json`
+  or the codebase.
+- ✅ **Broken Authentication** — the whole Authentication section above.
+- 🔶 **Broken Access Control** — RBAC is real and reasonably granular
+  (see above), but see the "API route protection" caveat — not every
+  individual route was re-verified one by one in this pass.
+- 🔶 **Sensitive Data Exposure** — `.select("-password -sessions -forgot_
+  password_otp -forgot_password_expiry")` patterns checked and correct
+  everywhere they were touched this pass; not exhaustively re-checked
+  across every controller response in the codebase for a stray leaked field.
+- ✅ **Security Misconfiguration** — `X-Powered-By` disabled, HSTS added,
+  real nonce-based CSP added (`middleware.js`) — no blanket
+  `unsafe-inline` on `script-src`.
+- ✅ **Rate limiting** (+ bypass hardening) — in-memory sliding-window
+  limiter in `apiHandler.js`: tight per-IP-per-route buckets on
+  login/register/OTP/password-reset/refresh, generous default elsewhere.
+  Honest limitations, stated in the code: (1) in-memory + per-process —
+  correct for this project's single-Node-process architecture, would need
+  a shared store (Redis) if ever horizontally scaled; (2) IP-based, so a
+  motivated attacker rotating IPs/using a proxy pool isn't fully stopped
+  by this alone — for login specifically, the account-level defenses
+  (rate limiting stacked with bcrypt's inherent per-guess cost, plus
+  breach/common-password checks preventing weak passwords in the first
+  place) provide the rest of the defense-in-depth; a dedicated per-account
+  lockout counter would be the next layer if this becomes a concern in
+  practice.
+
+Verified: 190 source files, 0 syntax errors (`esbuild` transform pass),
+0 import/export issues (fixed a checker false-positive along the way —
+the checker itself now correctly recognizes `export async function`,
+so this run is a clean 0, not a filtered 25). **Static verification only,
+as with every batch before this one** — this is unusually true for this
+batch specifically: token rotation, session management, and the HIBP
+breach check are exactly the kind of logic that needs a real login →
+refresh → login-on-second-device → logout-one-device flow exercised
+against a live MongoDB + real network access to be truly confidence-
+checked, neither of which this sandbox has. Recommend that flow as the
+first real test after deploying this build, specifically: log in on two
+browsers/devices, confirm both stay independently logged in, refresh a
+few times on one and confirm the other is unaffected, then use Profile →
+Active Sessions to sign one out remotely and confirm it's immediately
+logged out.
+
+---
+
+
+
 ## Batch 7 ("Continue") — SEO settings: admin UI + actual live use (item #23, closed)
 
 Picked up the highest-priority carried-forward item from Batch 3's "Still

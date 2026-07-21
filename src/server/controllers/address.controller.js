@@ -1,5 +1,6 @@
 import AddressModel from "../models/address.model.js";
 import UserModel from "../models/user.model.js";
+import { isValidMobile } from "@/lib/validate";
 
 // ADD ADDRESS
 export const addAddressController = async (req, res) => {
@@ -13,6 +14,11 @@ export const addAddressController = async (req, res) => {
         error: true,
         success: false,
       });
+    }
+    // Section 8 (API Security) audit: format validation on top of the
+    // presence check already above.
+    if (!isValidMobile(mobile)) {
+      return res.status(400).json({ message: "Please enter a valid mobile number.", error: true, success: false });
     }
 
     const address = new AddressModel({
@@ -96,6 +102,9 @@ export const updateAddressController = async (req, res) => {
         error: true,
         success: false,
       });
+    }
+    if (!isValidMobile(mobile)) {
+      return res.status(400).json({ message: "Please enter a valid mobile number.", error: true, success: false });
     }
 
     const updated = await AddressModel.findOneAndUpdate(

@@ -24,6 +24,12 @@ const notificationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Database security audit (Section 7 — indexes): the actual query pattern
+// here filters by `targetModule` (or matches "" = everyone) and sorts by
+// `createdAt` — a `createdAt`-only index doesn't help the filter step.
+// Kept the standalone `createdAt` index too since the "every admin" case
+// (`targetModule: ""`) still needs a plain recency sort.
+notificationSchema.index({ targetModule: 1, createdAt: -1 });
 notificationSchema.index({ createdAt: -1 });
 
 const NotificationModel = mongoose.models.notification || mongoose.model("notification", notificationSchema);

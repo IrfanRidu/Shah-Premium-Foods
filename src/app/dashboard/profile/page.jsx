@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useForm } from "react-hook-form";
-import { FaCamera, FaCheckCircle } from "react-icons/fa";
+import { FaCamera, FaCheckCircle, FaDesktop, FaMobileAlt, FaSignOutAlt } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { setUserDetails, updatedAvatar } from "@/store/userSlice";
@@ -154,6 +154,99 @@ export default function ProfilePage() {
             {isSubmitting ? "Saving…" : "Save Changes"}
           </button>
         </form>
+      </div>
+
+      {/* Security audit: multi-device sessions are now real (see
+          user.model.js / sessionManager.js) — this surfaces that so it's
+          an actual usable feature, not just backend plumbing the user
+          would have no way to see or act on. */}
+      <SessionsSection />
+    </div>
+  );
+}
+
+function SessionsSection() {
+  const [sessions, setSessions] = useState(null); // null = loading
+  const [busyId, setBusyId] = useState(null);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
+
+  const load = async () => {
+    try {
+      const res = await Axios(api.listSessions);
+      setSessions(res.data?.data || []);
+    } catch {
+      setSessions([]);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const revoke = async (id) => {
+    setBusyId(id);
+    try {
+      await Axios({ ...api.revokeSession, data: { sessionId: id } });
+      toast.success("Device signed out");
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      axiosToastError(err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const logoutAll = async () => {
+    if (!confirm("Sign out of all devices, including this one?")) return;
+    setLoggingOutAll(true);
+    try {
+      await Axios(api.logoutAllDevices);
+      toast.success("Logged out of all devices");
+      // This device's session was just revoked too — send them to login.
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      window.location.href = "/login";
+    } catch (err) {
+      axiosToastError(err);
+      setLoggingOutAll(false);
+    }
+  };
+
+  return (
+    <div className="bg-[var(--color-surface)] border border-theme rounded-2xl shadow-sm p-6 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-serif text-lg font-semibold">Active Sessions</h2>
+        {sessions?.length > 1 && (
+          <button onClick={logoutAll} disabled={loggingOutAll}
+            className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-60">
+            Log out of all devices
+          </button>
+        )}
+      </div>
+
+      {sessions === null && <p className="text-sm text-theme-muted">Loading…</p>}
+      {sessions?.length === 0 && <p className="text-sm text-theme-muted">No other active sessions.</p>}
+
+      <div className="space-y-2">
+        {sessions?.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-3 bg-[var(--color-bg)] border border-theme rounded-xl px-3 py-2.5">
+            <div className="flex items-center gap-3 min-w-0">
+              {/mobile|iphone|android/i.test(s.device) ? <FaMobileAlt className="text-theme-muted shrink-0" /> : <FaDesktop className="text-theme-muted shrink-0" />}
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {s.device} {s.isCurrent && <span className="text-[11px] font-normal text-green-600">(this device)</span>}
+                </p>
+                <p className="text-xs text-theme-muted">
+                  Last active {new Date(s.lastUsedAt).toLocaleString()}
+                </p>
+              </div>
+            </div>
+            {!s.isCurrent && (
+              <button onClick={() => revoke(s.id)} disabled={busyId === s.id}
+                className="text-theme-muted hover:text-red-600 shrink-0 disabled:opacity-50" title="Sign out this device">
+                <FaSignOutAlt />
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

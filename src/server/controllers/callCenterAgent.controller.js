@@ -65,8 +65,13 @@ export const createCallCenterAgentController = async (req, res) => {
 
       await ensureAgentRole();
 
-      tempPassword = password?.trim() || Math.random().toString(36).slice(-10);
-      const salt = await bcryptjs.genSalt(10);
+      // Security audit: Math.random() is not cryptographically secure and
+      // shouldn't be used to generate anything security-sensitive like a
+      // password, even a temporary one — crypto.randomBytes is the correct
+      // source of randomness here. Also bumped bcrypt cost to 12 (was 10),
+      // matching the rest of the app's password hashing.
+      tempPassword = password?.trim() || crypto.randomBytes(8).toString("base64url");
+      const salt = await bcryptjs.genSalt(12);
       const hashedPassword = await bcryptjs.hash(tempPassword, salt);
 
       const newUser = await new UserModel({

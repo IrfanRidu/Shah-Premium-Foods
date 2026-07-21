@@ -9,11 +9,38 @@ import generateOtp from "../utils/generateOtp.js";
 import generateAccessToken from "../utils/generateAccessToken.js";
 import generateRefreshToken from "../utils/generateRefreshToken.js";
 import uploadImageCloudinary from "../utils/uploadImageCloudinary.js";
+import { validateNewPassword } from "../utils/passwordPolicy.js";
+import { rotateSession, revokeSession, revokeAllSessions, revokeOtherSessions, listSessions } from "../utils/sessionManager.js";
+import { checkLoginAllowed, recordFailedLogin, recordSuccessfulLogin, getClientIpFromPlainHeaders } from "@/lib/security";
+import { isValidEmail, isValidMobile, isNonEmptyString } from "@/lib/validate";
 
+// Security audit: bcrypt cost factor. Was 10 everywhere (register, reset,
+// update-account) — raised to 12, the commonly recommended minimum for
+// 2025+ hardware. Existing users' password hashes already stored at cost
+// 10 keep working exactly as before (bcrypt encodes its own cost into the
+// hash itself, so verification of an old hash is unaffected) — this only
+// changes the cost used for hashes created going forward.
+const BCRYPT_COST = 12;
+
+// Security audit: was `sameSite: "None"` in production, which exists for
+// genuinely cross-site cookie scenarios (a separate frontend domain, an
+// embedded widget, etc.) and specifically weakens CSRF protection by
+// telling the browser it's OK to send this cookie along with cross-site
+// requests. This app is same-origin by design in production too — the
+// frontend and API share one Next.js server/port (see axios.js's own
+// comment on `baseURL`) — so there was never an actual reason for `None`
+// here; it was strictly a downgrade. `Lax` (already used in dev) is
+// correct for both environments: it still allows the cookie on top-level
+// navigations (so following a link to the site works normally) while
+// refusing it on cross-site subresource/fetch requests, which is exactly
+// the CSRF scenario this needs to block. If this app is ever split across
+// separate frontend/API domains, this would need to change back to
+// `None` + `secure: true`, paired with a real CSRF token (the Origin-
+// header check in security.js assumes a single origin).
 const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+  sameSite: "Lax",
 };
 
 // REGISTER
@@ -30,6 +57,15 @@ export const registerUserController = async (req, res) => {
       });
     }
 
+    // Section 8 (API Security) audit: format validation, not just
+    // presence — catches obvious garbage before it reaches a DB query.
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: "Please enter a valid email address.", error: true, success: false });
+    }
+    if (!isNonEmptyString(name, 100)) {
+      return res.status(400).json({ message: "Please enter a valid name.", error: true, success: false });
+    }
+
     const existingUser = await UserModel.findOne({ email });
 
     if (existingUser) {
@@ -40,7 +76,14 @@ export const registerUserController = async (req, res) => {
       });
     }
 
-    const salt = await bcryptjs.genSalt(10);
+    // Security audit: enforce password policy (common-password blocklist +
+    // best-effort breach check) before any hashing/DB write happens.
+    const passwordIssue = await validateNewPassword(password);
+    if (passwordIssue) {
+      return res.status(400).json({ message: passwordIssue, error: true, success: false });
+    }
+
+    const salt = await bcryptjs.genSalt(BCRYPT_COST);
     const hashedPassword = await bcryptjs.hash(password, salt);
 
     const otp = generateOtp();
@@ -200,9 +243,32 @@ export const loginUserController = async (req, res) => {
       });
     }
 
+    // Security audit (Section 4 — rate limiting): brute-force detection,
+    // on top of the per-IP-per-route rate limiter already applied to this
+    // endpoint in apiHandler.js. Checked BEFORE the DB lookup even
+    // happens, so a locked-out attempt costs nothing but a Map read. See
+    // security.js's own top-of-section comment for exactly what this adds
+    // that the plain rate limiter alone doesn't catch (distributed brute
+    // force against one account, and credential stuffing across many
+    // accounts from one IP).
+    const ip = getClientIpFromPlainHeaders(req.headers);
+    const preCheck = checkLoginAllowed(email, ip);
+    if (!preCheck.allowed) {
+      const minutes = Math.ceil(preCheck.retryAfterMs / 60000);
+      return res.status(429).json({
+        message:
+          preCheck.reason === "account"
+            ? `Too many failed attempts on this account. Please try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
+            : "Too many failed login attempts from this network. Please try again later.",
+        error: true,
+        success: false,
+      });
+    }
+
     const user = await UserModel.findOne({ email });
 
     if (!user) {
+      recordFailedLogin(email, ip);
       return res.status(400).json({
         message: "User not registered",
         error: true,
@@ -221,6 +287,15 @@ export const loginUserController = async (req, res) => {
     const checkPassword = await bcryptjs.compare(password, user.password);
 
     if (!checkPassword) {
+      const { accountLocked, accountRetryAfterMs } = recordFailedLogin(email, ip);
+      if (accountLocked) {
+        const minutes = Math.ceil(accountRetryAfterMs / 60000);
+        return res.status(429).json({
+          message: `Too many failed attempts on this account. Please try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          error: true,
+          success: false,
+        });
+      }
       return res.status(400).json({
         message: "Incorrect password",
         error: true,
@@ -228,8 +303,10 @@ export const loginUserController = async (req, res) => {
       });
     }
 
+    recordSuccessfulLogin(email);
+
     const accessToken = generateAccessToken(user._id);
-    const refreshToken = await generateRefreshToken(user._id);
+    const refreshToken = await generateRefreshToken(user._id, req);
 
     await UserModel.updateOne(
       { _id: user._id },
@@ -240,7 +317,7 @@ export const loginUserController = async (req, res) => {
     res.cookie("refreshToken", refreshToken, cookieOptions);
 
     const userData = await UserModel.findById(user._id)
-      .select("-password -refresh_token -forgot_password_otp -forgot_password_expiry")
+      .select("-password -sessions -forgot_password_otp -forgot_password_expiry")
       .populate("address_details");
 
     return res.json({
@@ -262,21 +339,99 @@ export const loginUserController = async (req, res) => {
   }
 };
 
-// LOGOUT
+// LOGOUT (current device only)
 export const logoutUserController = async (req, res) => {
   try {
     const userId = req.userId;
+    const refreshToken =
+      req.cookies?.refreshToken || req?.headers?.authorization?.split(" ")[1];
 
     res.clearCookie("accessToken", cookieOptions);
     res.clearCookie("refreshToken", cookieOptions);
 
-    await UserModel.findByIdAndUpdate(userId, { refresh_token: "" });
+    // Security audit: only revoke THIS device's session, not every
+    // session on the account — logging out on one device shouldn't sign
+    // you out everywhere else. Best-effort: if the refresh token is
+    // missing/already invalid, decoding just fails silently here since the
+    // cookies are cleared either way and the user is logged out from this
+    // browser's point of view regardless.
+    if (refreshToken && process.env.JWT_SECRET_REFRESH) {
+      try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH);
+        if (decoded?.jti) await revokeSession(userId, decoded.jti);
+      } catch {
+        // token already invalid/expired — nothing to revoke, that's fine
+      }
+    }
 
     return res.json({
       message: "Logged out successfully",
       error: false,
       success: true,
     });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// LOGOUT — ALL DEVICES (session invalidation / revocation, explicit request)
+export const logoutAllDevicesController = async (req, res) => {
+  try {
+    const userId = req.userId;
+    await revokeAllSessions(userId);
+    res.clearCookie("accessToken", cookieOptions);
+    res.clearCookie("refreshToken", cookieOptions);
+    return res.json({
+      message: "Logged out of all devices",
+      error: false,
+      success: true,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// LIST ACTIVE SESSIONS (multi-device support, visible to the user)
+export const listSessionsController = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const refreshToken =
+      req.cookies?.refreshToken || req?.headers?.authorization?.split(" ")[1];
+    let currentTokenId = null;
+    if (refreshToken && process.env.JWT_SECRET_REFRESH) {
+      try {
+        currentTokenId = jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH)?.jti || null;
+      } catch { /* not fatal — just won't be able to flag "this device" */ }
+    }
+    const sessions = await listSessions(userId, currentTokenId);
+    return res.json({ error: false, success: true, data: sessions });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// REVOKE ONE SESSION (sign out one specific device remotely)
+export const revokeSessionController = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ message: "sessionId is required", error: true, success: false });
+    }
+    await revokeSession(userId, sessionId);
+    return res.json({ message: "Device signed out", error: false, success: true });
   } catch (error) {
     return res.status(500).json({
       message: error.message || "Internal server error",
@@ -317,7 +472,7 @@ export const uploadAvatarController = async (req, res) => {
       userId,
       { avatar: avatarUrl },
       { new: true }
-    ).select("-password -refresh_token");
+    ).select("-password -sessions");
 
     return res.json({
       message: "Avatar uploaded successfully",
@@ -347,14 +502,34 @@ export const updateUserDetailsController = async (req, res) => {
     if (mobile) updateData.mobile = mobile;
 
     if (password) {
-      const salt = await bcryptjs.genSalt(10);
+      const passwordIssue = await validateNewPassword(password);
+      if (passwordIssue) {
+        return res.status(400).json({ message: passwordIssue, error: true, success: false });
+      }
+      const salt = await bcryptjs.genSalt(BCRYPT_COST);
       updateData.password = await bcryptjs.hash(password, salt);
     }
 
     await UserModel.updateOne({ _id: userId }, updateData);
 
+    // Security audit: same OWASP session-invalidation guidance as the
+    // forgot-password reset flow — a password change should kill other
+    // sessions. Here specifically it keeps THIS device logged in (the
+    // request that just changed the password) and signs out everywhere
+    // else, rather than logging the user out of their own request.
+    if (password) {
+      const refreshToken =
+        req.cookies?.refreshToken || req?.headers?.authorization?.split(" ")[1];
+      let currentTokenId = null;
+      if (refreshToken && process.env.JWT_SECRET_REFRESH) {
+        try { currentTokenId = jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH)?.jti || null; }
+        catch { /* fine — falls through to revoking everything if we can't identify "this" session */ }
+      }
+      await revokeOtherSessions(userId, currentTokenId);
+    }
+
     const updatedUser = await UserModel.findById(userId)
-      .select("-password -refresh_token -forgot_password_otp -forgot_password_expiry")
+      .select("-password -sessions -forgot_password_otp -forgot_password_expiry")
       .populate("address_details");
 
     return res.json({
@@ -383,6 +558,9 @@ export const forgotPasswordController = async (req, res) => {
         error: true,
         success: false,
       });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: "Please enter a valid email address.", error: true, success: false });
     }
 
     const user = await UserModel.findOne({ email });
@@ -510,12 +688,26 @@ export const resetPasswordController = async (req, res) => {
       });
     }
 
-    const salt = await bcryptjs.genSalt(10);
+    const passwordIssue = await validateNewPassword(newPassword);
+    if (passwordIssue) {
+      return res.status(400).json({ message: passwordIssue, error: true, success: false });
+    }
+
+    const salt = await bcryptjs.genSalt(BCRYPT_COST);
     const hashedPassword = await bcryptjs.hash(newPassword, salt);
 
     await UserModel.findByIdAndUpdate(user._id, {
       password: hashedPassword,
     });
+
+    // Security audit: a password reset means either the legitimate owner
+    // is regaining control, or (less happily) is exactly the moment an
+    // attacker who guessed/reset the password would want every OTHER
+    // session to stay alive. Either way, the correct behavior is the
+    // same: invalidate every existing session so a stale/possibly-
+    // compromised login elsewhere doesn't silently persist through a
+    // password change.
+    await revokeAllSessions(user._id);
 
     return res.json({
       message: "Password reset successfully",
@@ -554,25 +746,59 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH);
-
-    if (!decoded) {
+    // Security audit: a JWT that fails verification (expired, bad
+    // signature, tampered) should be a 401 Unauthorized — the caller needs
+    // to log in again — not a 500, which previously happened here because
+    // jwt.verify()'s throw fell through to the generic catch block below.
+    // A 500 also pollutes error monitoring with what's actually a routine,
+    // expected event (access tokens expire every 15 minutes by design).
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET_REFRESH);
+    } catch {
+      res.clearCookie("accessToken", cookieOptions);
+      res.clearCookie("refreshToken", cookieOptions);
       return res.status(401).json({
-        message: "Invalid or expired refresh token",
+        message: "Your session has expired. Please log in again.",
+        error: true,
+        success: false,
+      });
+    }
+
+    // Security audit: refresh token ROTATION with reuse detection (see
+    // sessionManager.js's own top-of-file comment for the full mechanics
+    // and why the reused-token case revokes every session on the account
+    // rather than just this one). Every successful refresh now issues a
+    // BRAND NEW refresh token — the one just presented becomes permanently
+    // invalid the instant it's used, whether or not it's still within its
+    // 7-day expiry.
+    const expireStr = process.env.REFRESH_TOKEN_EXPIRE || "7d";
+    const match = /^(\d+)([smhd])$/.exec(expireStr);
+    const unitMs = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 };
+    const expiresAt = new Date(Date.now() + (match ? Number(match[1]) * unitMs[match[2]] : 7 * 24 * 60 * 60 * 1000));
+
+    const { reused, newTokenId } = await rotateSession(decoded.id, decoded.jti, req, expiresAt);
+    if (reused) {
+      res.clearCookie("accessToken", cookieOptions);
+      res.clearCookie("refreshToken", cookieOptions);
+      return res.status(401).json({
+        message: "This session is no longer valid — for your security, all devices have been signed out. Please log in again.",
         error: true,
         success: false,
       });
     }
 
     const newAccessToken = generateAccessToken(decoded.id);
+    const newRefreshToken = jwt.sign({ id: decoded.id, jti: newTokenId }, process.env.JWT_SECRET_REFRESH, { expiresIn: expireStr });
 
     res.cookie("accessToken", newAccessToken, cookieOptions);
+    res.cookie("refreshToken", newRefreshToken, cookieOptions);
 
     return res.json({
       message: "Access token refreshed",
       error: false,
       success: true,
-      data: { accessToken: newAccessToken },
+      data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
     });
   } catch (error) {
     return res.status(500).json({
@@ -589,7 +815,7 @@ export const getUserDetailsController = async (req, res) => {
     const userId = req.userId;
 
     const user = await UserModel.findById(userId)
-      .select("-password -refresh_token")
+      .select("-password -sessions")
       .populate("address_details");
 
     return res.json({
@@ -611,7 +837,7 @@ export const getUserDetailsController = async (req, res) => {
 export const getAllUsersController = async (req, res) => {
   try {
     const users = await UserModel.find()
-      .select("-password -refresh_token")
+      .select("-password -sessions")
       .sort({ createdAt: -1 });
 
     return res.json({

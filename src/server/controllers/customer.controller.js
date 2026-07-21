@@ -40,7 +40,7 @@ export const getCustomersController = async (req, res) => {
           lastOrderDate: { $max: "$orders.createdAt" },
         },
       },
-      { $project: { password: 0, refresh_token: 0, forgot_password_otp: 0, forgot_password_expiry: 0, orders: 0 } },
+      { $project: { password: 0, sessions: 0, forgot_password_otp: 0, forgot_password_expiry: 0, orders: 0 } },
     ];
 
     if (minOrders) pipeline.push({ $match: { totalOrders: { $gte: parseInt(minOrders) } } });
@@ -72,7 +72,7 @@ export const getCustomersController = async (req, res) => {
 export const getCustomerDetailController = async (req, res) => {
   try {
     const { id } = req.params;
-    const customer = await UserModel.findById(id).select("-password -refresh_token -forgot_password_otp -forgot_password_expiry").populate("address_details");
+    const customer = await UserModel.findById(id).select("-password -sessions -forgot_password_otp -forgot_password_expiry").populate("address_details");
     if (!customer) return res.status(404).json({ success: false, error: true, message: "Customer not found" });
 
     const orders = await OrderModel.find({ userId: id }).sort({ createdAt: -1 });

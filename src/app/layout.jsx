@@ -1,5 +1,6 @@
 import "./globals.css";
 import { cache } from "react";
+import { headers } from "next/headers";
 import Providers from "@/providers/Providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -61,6 +62,10 @@ export async function generateMetadata() {
 export default async function RootLayout({ children }) {
   const settings = await getSiteSettingsForHead();
   const seo = settings?.seo || {};
+  // Set by src/middleware.js — see that file's comment for the full CSP
+  // story. Every inline <script> below must carry this exact nonce or the
+  // browser will refuse to run it under the Content-Security-Policy header.
+  const nonce = headers().get("x-csp-nonce") || undefined;
 
   // Structured data is free-form admin-entered JSON — validated here so a
   // typo can't break the whole page; an invalid value is just skipped
@@ -69,6 +74,13 @@ export default async function RootLayout({ children }) {
   if (seo.structuredData?.trim()) {
     try { structuredDataJson = JSON.parse(seo.structuredData); } catch { /* skip silently, already warned at save time */ }
   }
+  // Defense in depth even with the nonce above: escaping "<" means a
+  // string value inside the admin's JSON can never contain a literal
+  // "</script>" sequence, which would otherwise let injected content break
+  // out of this script tag and be parsed as raw HTML by the browser.
+  const structuredDataHtml = structuredDataJson
+    ? JSON.stringify(structuredDataJson).replace(/</g, "\\u003c")
+    : null;
 
   return (
     <html lang="en">
@@ -82,8 +94,9 @@ export default async function RootLayout({ children }) {
         {seo.googleAnalyticsId && (
           <>
             {/* eslint-disable-next-line @next/next/next-script-for-ga */}
-            <script async src={`https://www.googletagmanager.com/gtag/js?id=${seo.googleAnalyticsId}`} />
+            <script nonce={nonce} async src={`https://www.googletagmanager.com/gtag/js?id=${seo.googleAnalyticsId}`} />
             <script
+              nonce={nonce}
               dangerouslySetInnerHTML={{
                 __html: `window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
@@ -93,10 +106,11 @@ gtag('config', '${seo.googleAnalyticsId}');`,
             />
           </>
         )}
-        {structuredDataJson && (
+        {structuredDataHtml && (
           <script
+            nonce={nonce}
             type="application/ld+json"
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredDataJson) }}
+            dangerouslySetInnerHTML={{ __html: structuredDataHtml }}
           />
         )}
       </head>

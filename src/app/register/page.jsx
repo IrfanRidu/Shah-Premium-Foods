@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -13,6 +13,15 @@ export default function RegisterPage() {
   const [showPw, setShowPw] = useState(false);
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm();
   const router = useRouter();
+
+  // Security hardening — see login/page.jsx's own comment for the full
+  // reasoning: scrub a stray `?password=...` from the URL immediately
+  // without ever reading it, rather than leaving it in the address bar/
+  // history/Referer headers.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("password")) router.replace("/register");
+  }, [router]);
 
   const onSubmit = async (data) => {
     try {

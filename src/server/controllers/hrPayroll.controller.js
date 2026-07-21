@@ -1,5 +1,32 @@
 import { EmployeeModel, PayrollRecordModel } from "../models/employee.model.js";
 
+// Only these fields are settable through the generic HR employee CRUD
+// below. Security fix (mass assignment / OWASP A08): `createEmployeeController`
+// and `updateEmployeeController` used to pass `req.body` straight into
+// `new EmployeeModel(req.body)` / `findByIdAndUpdate(_id, rest)`
+// unfiltered — since the schema also has `userId` (linking an employee
+// record to a login account) and `isCallCenterAgent`, a caller could set
+// either directly through this endpoint, bypassing the dedicated
+// callCenterAgent.controller.js flow that's supposed to be the only way
+// those two fields get set (it provisions the linked login + role
+// together, atomically — setting `userId` here without going through that
+// flow could link an employee record to an arbitrary account with no
+// corresponding role/permission setup). Deliberately excluded from this
+// whitelist for that reason.
+const EMPLOYEE_EDITABLE_FIELDS = [
+  "name", "email", "phone", "designation", "department",
+  "employmentType", "monthlySalary", "joinDate", "status",
+  "bankAccount", "notes",
+];
+
+function pickEmployeeFields(source) {
+  const out = {};
+  for (const key of EMPLOYEE_EDITABLE_FIELDS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
+
 // ── Employees ──────────────────────────────────────────────────
 export const listEmployeesController = async (req, res) => {
   try {
@@ -17,7 +44,7 @@ export const listEmployeesController = async (req, res) => {
 
 export const createEmployeeController = async (req, res) => {
   try {
-    const emp = new EmployeeModel(req.body);
+    const emp = new EmployeeModel(pickEmployeeFields(req.body));
     await emp.save();
     return res.status(201).json({ success: true, error: false, data: emp, message: "Employee added" });
   } catch (err) {
@@ -27,8 +54,8 @@ export const createEmployeeController = async (req, res) => {
 
 export const updateEmployeeController = async (req, res) => {
   try {
-    const { _id, ...rest } = req.body;
-    const updated = await EmployeeModel.findByIdAndUpdate(_id, rest, { new: true });
+    const { _id } = req.body;
+    const updated = await EmployeeModel.findByIdAndUpdate(_id, pickEmployeeFields(req.body), { new: true });
     return res.json({ success: true, error: false, data: updated, message: "Employee updated" });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
