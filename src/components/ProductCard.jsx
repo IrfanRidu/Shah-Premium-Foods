@@ -1,26 +1,33 @@
 "use client";
+import { memo } from "react";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
 import { displayPrice, priceWithDiscount, validURLConvert } from "@/lib/utils";
 import { getCampaignIcon } from "@/lib/campaignIcons";
+import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
+import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
 
 // Fix 29: Show short description (truncated)
 // Fix 32: Uniform card heights via flex layout
 // Fix 33: "Running Out" badge
-
-export default function ProductCard({ product }) {
+//
+// Section 9 (Performance): wrapped in memo() — this renders many times per
+// page (every product grid/row) and its own props (a single `product`
+// object) only change when that specific product's data changes, so a
+// re-render of some unrelated ancestor (e.g. the cart count updating in
+// the header) no longer needlessly re-renders every card on the page.
+function ProductCard({ product }) {
   const router    = useRouter();
   const currency  = useSelector((s) => s.currency.selected);
   const rates     = useSelector((s) => s.currency.rates);
-  const campaigns = useSelector((s) => s.campaign.campaigns);
-
-  const activeCampaign = campaigns.find((c) =>
-    c.products?.some((p) => (p.productId?._id || p.productId)?.toString() === product._id?.toString())
-  );
-  const campaignEntry = activeCampaign?.products?.find(
-    (p) => (p.productId?._id || p.productId)?.toString() === product._id?.toString()
-  );
+  // Section 9 (Performance): O(1) lookup from a selector memoized against
+  // the campaigns array (see store/campaignSelectors.js) instead of this
+  // component scanning every campaign's product list on every render.
+  const campaignMap = useSelector(selectCampaignByProductIdMap);
+  const match = campaignMap.get(product._id?.toString());
+  const activeCampaign = match?.campaign;
+  const campaignEntry  = match?.entry;
   const isCampaign       = !!activeCampaign;
   const campaignDiscount = campaignEntry?.specialDiscount || 0;
   const effectiveDiscount = campaignDiscount || product.discount || 0;
@@ -41,11 +48,17 @@ export default function ProductCard({ product }) {
     >
       {/* ── Image ── */}
       <div className="relative overflow-hidden bg-[var(--color-bg)] aspect-square">
-        <img
+        <SafeImage
           src={product.image?.[0]}
           alt={product.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          loading="lazy"
+          fill
+          // Section 9 (Performance): matches the actual rendered card width
+          // across breakpoints closely enough for next/image to pick a
+          // sensibly-sized generated variant instead of always serving the
+          // largest one — cards run ~2/row on mobile, up to ~5/row on
+          // desktop grids across this app.
+          sizes="(max-width: 480px) 50vw, (max-width: 768px) 33vw, (max-width: 1200px) 25vw, 20vw"
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
 
         {/* Campaign badge */}
@@ -117,3 +130,5 @@ export default function ProductCard({ product }) {
     </div>
   );
 }
+
+export default memo(ProductCard);

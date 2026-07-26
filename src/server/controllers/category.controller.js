@@ -1,6 +1,16 @@
 import CategoryModel from "../models/category.model.js";
 import SubCategoryModel from "../models/subcategory.model.js";
 import ProductModel from "../models/product.model.js";
+import cache from "../../lib/cache.js";
+
+// Section 9 (Performance) — "Route cache / API cache / Redis-ready
+// architecture" (see lib/cache.js for the full reasoning). Category list
+// is fetched by nearly every visitor on nearly every page load (via
+// GlobalProvider) and only actually changes when an admin adds/edits/
+// deletes one — a textbook cache candidate. TTL is a safety net;
+// invalidate() below is the real invalidation path so admin edits show up
+// immediately rather than waiting out the TTL.
+const CATEGORY_CACHE_KEY = "category:all";
 
 // ADD CATEGORY (admin)
 export const addCategoryController = async (req, res) => {
@@ -17,6 +27,7 @@ export const addCategoryController = async (req, res) => {
 
     const category = new CategoryModel({ name, image, translations });
     const saved = await category.save();
+    await cache.invalidate("category:");
 
     return res.status(201).json({
       message: "Category added successfully",
@@ -36,7 +47,11 @@ export const addCategoryController = async (req, res) => {
 // GET ALL CATEGORIES (public)
 export const getCategoriesController = async (req, res) => {
   try {
-    const categories = await CategoryModel.find().sort({ createdAt: 1 });
+    const categories = await cache.getOrSet(
+      CATEGORY_CACHE_KEY,
+      () => CategoryModel.find().sort({ createdAt: 1 }),
+      cache.TTL.MEDIUM
+    );
 
     return res.json({
       message: "Categories fetched successfully",
@@ -74,6 +89,7 @@ export const updateCategoryController = async (req, res) => {
     const updated = await CategoryModel.findByIdAndUpdate(_id, updateData, {
       new: true,
     });
+    await cache.invalidate("category:");
 
     return res.json({
       message: "Category updated successfully",
@@ -120,6 +136,7 @@ export const deleteCategoryController = async (req, res) => {
     }
 
     await CategoryModel.findByIdAndDelete(_id);
+    await cache.invalidate("category:");
 
     return res.json({
       message: "Category deleted successfully",

@@ -5,6 +5,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError, displayPrice } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import { MetricCard, TabSection, DateRangePicker, LoadingBlock } from "./shared";
 
 export default function MarketingTab() {
@@ -116,7 +117,7 @@ export default function MarketingTab() {
                 <ul className="space-y-2">
                   {activity.topViewedProducts.map((p) => (
                     <li key={p._id} className="flex items-center gap-2 text-sm">
-                      {p.image && <img src={p.image} alt="" className="h-8 w-8 rounded-lg object-cover shrink-0" />}
+                      {p.image && <SafeImage src={p.image} alt="" width={32} height={32} className="h-8 w-8 rounded-lg object-cover shrink-0" />}
                       <span className="truncate flex-1">{p.name || "Unknown product"}</span>
                       <span className="text-theme-muted shrink-0">{p.count}×</span>
                     </li>

@@ -88,20 +88,13 @@ export const cloudinaryWebpUrl = (url = "") => {
   return url.replace("/upload/", "/upload/f_webp,q_auto/");
 };
 
-export const validURLConvert = (name = "", id = "") => {
-  const slug = name
-    .toString()
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
-  return `${slug}-${id}`;
-};
-
-export const extractIdFromSlug = (slug = "") => {
-  const m = slug.match(/([a-f0-9]{24})$/i);
-  return m ? m[1] : null;
-};
+// Section 9/10 perf+SEO pass: moved to lib/slug.js (pure, dependency-free —
+// see that file's comment for why) and re-exported here so every existing
+// `import { validURLConvert, extractIdFromSlug } from "@/lib/utils"` call
+// site keeps working exactly as before. New server-only code should import
+// from "@/lib/slug" directly instead of pulling this whole file (and its
+// react-hot-toast dependency) into a server bundle.
+export { validURLConvert, extractIdFromSlug } from "./slug.js";
 
 // ── Role helpers ─────────────────────────────────────────────────
 export const isAdmin = (role) => ["ADMIN", "SUPERADMIN"].includes(role);

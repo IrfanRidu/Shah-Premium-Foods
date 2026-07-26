@@ -7,6 +7,7 @@ import { FaPlus, FaTrash, FaTimes } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 function UploadForm() {
@@ -162,7 +163,7 @@ function UploadForm() {
         <div className="flex gap-3 flex-wrap">
           {images.map((img, i) => (
             <div key={i} className="relative h-24 w-24 rounded-xl overflow-hidden border border-theme group">
-              <img src={img.url} alt="" className="w-full h-full object-cover" />
+              <SafeImage src={img.url} alt="" fill sizes="96px" className="object-cover" />
               <button type="button" onClick={() => removeImage(i)}
                 className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
                 <FaTrash size={14} />
@@ -288,7 +289,7 @@ function UploadForm() {
                         : (field.value || []).filter((id) => id !== cat._id);
                       field.onChange(next);
                     }} className="accent-[var(--color-primary)]" />
-                    {cat.image && <img src={cat.image} alt="" className="h-5 w-5 rounded object-cover" />}
+                    {cat.image && <SafeImage src={cat.image} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" />}
                     <span className="truncate">{cat.name}</span>
                   </label>
                 );

@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { setSiteSettings } from "@/store/siteSettingsSlice";
 import { axiosToastError, uploadImage } from "@/lib/utils";
 import { useGlobalContext } from "@/providers/GlobalProvider";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const THEMES = ["default","dark","ocean","festive"];
@@ -384,7 +385,7 @@ export default function SiteSettingsPage() {
         <div>
           <label className="block text-sm font-medium mb-1.5">Logo</label>
           <div className="flex items-center gap-4">
-            {logo && <img src={logo} alt="logo" className="h-12 object-contain rounded-lg border border-theme" />}
+            {logo && <SafeImage src={logo} alt="logo" width={200} height={48} className="h-12 w-auto object-contain rounded-lg border border-theme" />}
             <label className="btn-outline px-4 py-2 cursor-pointer text-sm">
               Upload Logo
               <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
@@ -397,7 +398,7 @@ export default function SiteSettingsPage() {
           <div className="flex items-center gap-4">
             {favicon && (
               <div className="flex items-center gap-2">
-                <img src={favicon} alt="favicon" className="h-8 w-8 object-contain rounded border border-theme" />
+                <SafeImage src={favicon} alt="favicon" width={32} height={32} className="h-8 w-8 object-contain rounded border border-theme" />
                 <span className="text-xs text-theme-muted">Current favicon</span>
               </div>
             )}
@@ -414,7 +415,7 @@ export default function SiteSettingsPage() {
         <div className="flex gap-3 flex-wrap">
           {banners.map((b, i) => (
             <div key={i} className="relative h-24 w-40 rounded-xl overflow-hidden border border-theme group">
-              <img src={b.image||b} alt="" className="w-full h-full object-cover" />
+              <SafeImage src={b.image||b} alt="" fill sizes="160px" className="object-cover" />
               <button type="button" onClick={() => handleBannerDelete(b, i)}
                 className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
                 <FaTrash size={14}/>
@@ -434,7 +435,7 @@ export default function SiteSettingsPage() {
         <div className="flex gap-3 flex-wrap">
           {paymentMethods.map((pm, i) => (
             <div key={i} className="relative h-14 w-24 rounded-xl overflow-hidden border border-theme group bg-white flex items-center justify-center p-1.5">
-              <img src={pm.image} alt={pm.name} title={pm.name} className="max-h-full max-w-full object-contain" />
+              <SafeImage src={pm.image} alt={pm.name} title={pm.name} fill sizes="96px" className="object-contain" />
               <button type="button" onClick={() => handlePaymentLogoRemove(i)}
                 className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
                 <FaTrash size={13}/>

@@ -5,6 +5,7 @@ import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError, displayPrice, displayPriceSimple, isSuperAdmin } from "@/lib/utils";
 import { useSelector } from "react-redux";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 // CSV export intentionally stays in BDT (the platform's settlement/base
@@ -122,7 +123,7 @@ export default function AdminUsersPage() {
                     <td>
                       <div className="flex items-center gap-2">
                         {u.avatar
-                          ? <img src={u.avatar} alt="" className="h-8 w-8 rounded-full object-cover shrink-0"/>
+                          ? <SafeImage src={u.avatar} alt="" width={32} height={32} className="h-8 w-8 rounded-full object-cover shrink-0"/>
                           : <div className="h-8 w-8 rounded-full bg-[var(--color-border)] flex items-center justify-center font-semibold text-xs shrink-0">{u.name?.[0]?.toUpperCase()}</div>
                         }
                         <div><p className="font-medium text-sm">{u.name}</p><p className="text-xs text-theme-muted">{u.email}</p></div>

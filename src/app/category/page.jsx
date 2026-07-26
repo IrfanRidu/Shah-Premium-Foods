@@ -2,6 +2,7 @@
 import { useSelector } from "react-redux";
 import Link from "next/link";
 import { validURLConvert } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 
 export default function CategoryPage() {
   const categories    = useSelector((s) => s.product.allCategory);
@@ -30,7 +31,7 @@ export default function CategoryPage() {
           return (
             <div key={cat._id}>
               <div className="flex items-center gap-3 mb-4">
-                {cat.image && <img src={cat.image} alt={cat.name} className="h-10 w-10 rounded-xl object-cover" />}
+                {cat.image && <SafeImage src={cat.image} alt={cat.name} width={40} height={40} className="h-10 w-10 rounded-xl object-cover" />}
                 <h2 className="font-display text-xl font-semibold">{cat.name}</h2>
               </div>
               {subs.length > 0 ? (
@@ -39,7 +40,7 @@ export default function CategoryPage() {
                     <Link key={sub._id} href={`/${validURLConvert(cat.name,cat._id)}/${validURLConvert(sub.name,sub._id)}`}
                       className="flex flex-col items-center gap-2 p-3 rounded-2xl border border-theme bg-[var(--color-surface)] hover:border-theme-primary hover:shadow-md transition-all group text-center">
                       {sub.image
-                        ? <img src={sub.image} alt={sub.name} className="h-14 w-14 rounded-xl object-cover group-hover:scale-105 transition-transform" />
+                        ? <SafeImage src={sub.image} alt={sub.name} width={56} height={56} className="h-14 w-14 rounded-xl object-cover group-hover:scale-105 transition-transform" />
                         : <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-sage-100 to-sage-200"/>
                       }
                       <span className="text-xs font-medium">{sub.name}</span>

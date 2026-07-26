@@ -1,8 +1,19 @@
 import CampaignModel from "../models/campaign.model.js";
 import ProductModel from "../models/product.model.js";
+import cache from "../../lib/cache.js";
 
 const DEFAULT_NAME = "Flash Sale";
 const DEFAULT_ICON = "bolt";
+// Section 9 (Performance): unlike categories/settings, "active" here is a
+// time-window computation (startTime <= now <= endTime), not just a
+// database read — a cached result can go stale simply because time passed,
+// with no mutation involved at all (a flash sale's end time arriving, or a
+// new one's start time arriving). SHORT (30s, same tolerance this app
+// already accepts elsewhere — see GlobalProvider's own 30s settings poll)
+// bounds how late a sale can appear to end/start; still a real, meaningful
+// cut in DB load since this endpoint is polled by every visitor on every
+// page via GlobalProvider.
+const ACTIVE_CAMPAIGNS_CACHE_KEY = "campaign:active";
 
 // ── Discount sync helper ────────────────────────────────────────────────
 // A product's own `discount` is turned OFF (set to 0) the moment it's
@@ -40,21 +51,27 @@ const syncProductCampaignDiscount = async (productIds = []) => {
 // GET active campaigns (public)
 export const getActiveCampaignsController = async (req, res) => {
   try {
-    const now = new Date();
-    const campaigns = await CampaignModel.find({
-      isActive: true,
-      startTime: { $lte: now },
-      endTime: { $gte: now },
-    })
-      .sort({ displayOrder: 1, createdAt: -1 })
-      .populate({ path: "products.productId", select: "name image price discount unit stock publish sku" });
+    const withValidity = await cache.getOrSet(
+      ACTIVE_CAMPAIGNS_CACHE_KEY,
+      async () => {
+        const now = new Date();
+        const campaigns = await CampaignModel.find({
+          isActive: true,
+          startTime: { $lte: now },
+          endTime: { $gte: now },
+        })
+          .sort({ displayOrder: 1, createdAt: -1 })
+          .populate({ path: "products.productId", select: "name image price discount unit stock publish sku" });
 
-    const withValidity = campaigns.map((c) => ({
-      ...c.toObject(),
-      name: c.name || DEFAULT_NAME,
-      icon: c.icon || DEFAULT_ICON,
-      products: c.products.filter((p) => p.productId && p.productId.publish !== false),
-    }));
+        return campaigns.map((c) => ({
+          ...c.toObject(),
+          name: c.name || DEFAULT_NAME,
+          icon: c.icon || DEFAULT_ICON,
+          products: c.products.filter((p) => p.productId && p.productId.publish !== false),
+        }));
+      },
+      cache.TTL.SHORT
+    );
 
     return res.json({ success: true, error: false, data: withValidity });
   } catch (err) {
@@ -111,6 +128,7 @@ export const createCampaignController = async (req, res) => {
       iconColor: iconColor || "#ffffff",
     });
     await campaign.save();
+    await cache.invalidate("campaign:");
 
     // Turn off regular discount for every product just added to this campaign
     await syncProductCampaignDiscount((products || []).map((p) => p.productId));
@@ -148,6 +166,7 @@ export const updateCampaignController = async (req, res) => {
       const affected = [...new Set([...beforeIds, ...afterIds])];
       await syncProductCampaignDiscount(affected);
     }
+    await cache.invalidate("campaign:");
 
     const refreshed = await CampaignModel.findById(_id).populate({
       path: "products.productId", select: "name image price discount unit",
@@ -167,6 +186,7 @@ export const deleteCampaignController = async (req, res) => {
     const productIds = (campaign?.products || []).map((p) => p.productId);
 
     await CampaignModel.findByIdAndDelete(_id);
+    await cache.invalidate("campaign:");
 
     // Restore discounts for any product that's no longer in any campaign
     await syncProductCampaignDiscount(productIds);
@@ -187,6 +207,7 @@ export const addProductToCampaignController = async (req, res) => {
     if (exists) return res.status(400).json({ success: false, error: true, message: "Product already in this campaign" });
     campaign.products.push({ productId, specialPrice: specialPrice || 0, specialDiscount: specialDiscount || 0 });
     await campaign.save();
+    await cache.invalidate("campaign:");
 
     // Turn off this product's regular discount — the campaign discount governs now
     await syncProductCampaignDiscount([productId]);
@@ -207,6 +228,7 @@ export const removeProductFromCampaignController = async (req, res) => {
       { $pull: { products: { productId } } },
       { new: true }
     ).populate({ path: "products.productId", select: "name image price discount unit" });
+    await cache.invalidate("campaign:");
 
     // Restore the product's regular discount if it's not in any other campaign
     await syncProductCampaignDiscount([productId]);

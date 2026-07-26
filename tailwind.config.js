@@ -3,9 +3,14 @@ export default {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
+      // Section 9 (Performance): these used to reference the Google Fonts
+      // family names directly; now point at the CSS variables next/font
+      // generates (see src/lib/fonts.js + layout.jsx), matching the same
+      // change in globals.css's .font-display / .section-heading / body
+      // rules — same visual fonts, now self-hosted and non-blocking.
       fontFamily: {
-        display: ["Playfair Display", "Georgia", "serif"],
-        body: ["Inter", "system-ui", "sans-serif"],
+        display: ["var(--font-playfair-display)", "Georgia", "serif"],
+        body: ["var(--font-inter)", "system-ui", "sans-serif"],
       },
       colors: {
         sage: {

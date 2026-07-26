@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { FaChevronLeft, FaChevronRight, FaPlay, FaPause } from "react-icons/fa";
+import SafeImage from "./SafeImage";
 
 // Fix 18: Detect if a slide is a video
 const isVideo = (url) => {
@@ -96,7 +97,23 @@ export default function Carousel({ banners = [] }) {
                   onEnded={handleVideoEnd}
                 />
               ) : (
-                <img src={imageUrl} alt={slide?.title || `Banner ${i + 1}`} className="w-full h-full object-cover" />
+                <SafeImage
+                  src={imageUrl}
+                  alt={slide?.title || `Banner ${i + 1}`}
+                  fill
+                  className="object-cover"
+                  // Section 9 (Performance) — "Optimize LCP": this hero
+                  // banner is the most likely Largest Contentful Paint
+                  // element on the homepage. `priority` only on the FIRST
+                  // slide (i === 0, the one visible before any user
+                  // interaction) — preloads it and skips lazy-loading, so
+                  // it doesn't wait on the browser's normal viewport-based
+                  // lazy-load heuristic. Every other slide stays lazy
+                  // (they're all mounted at once for the slide-transition
+                  // effect, but aren't what's visible first).
+                  priority={i === 0}
+                  sizes="100vw"
+                />
               )}
 
               {/* Fix 19: Custom banner button overlay */}

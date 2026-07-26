@@ -9,6 +9,7 @@ import { setAllCategory } from "@/store/productSlice";
 import { axiosToastError, uploadImage } from "@/lib/utils";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import ConfirmBox from "@/components/ConfirmBox";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 function CategoryModal({ defaultValues, onClose }) {
@@ -53,9 +54,9 @@ function CategoryModal({ defaultValues, onClose }) {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">Image</label>
-            <label className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden">
+            <label className="relative flex flex-col items-center justify-center h-32 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden">
               {preview
-                ? <img src={preview} alt="preview" className="h-full w-full object-contain" />
+                ? <SafeImage src={preview} alt="preview" fill sizes="200px" className="object-contain" />
                 : <span className="text-sm text-theme-muted">Click to upload image</span>
               }
               <input type="file" accept="image/*" onChange={handleImg} className="hidden" />
@@ -108,7 +109,7 @@ export default function AdminCategoryPage() {
             )}
             {categories.map((cat) => (
               <tr key={cat._id}>
-                <td>{cat.image && <img src={cat.image} alt={cat.name} className="h-10 w-10 rounded-lg object-cover" />}</td>
+                <td>{cat.image && <SafeImage src={cat.image} alt={cat.name} width={40} height={40} className="h-10 w-10 rounded-lg object-cover" />}</td>
                 <td className="font-medium">{cat.name}</td>
                 <td className="text-right">
                   <div className="action-group justify-end">

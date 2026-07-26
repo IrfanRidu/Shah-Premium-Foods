@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { FaChevronDown } from "react-icons/fa";
+import SafeImage from "./SafeImage";
 
 // Reusable searchable dropdown for products — combobox pattern with manual
 // typing AND a clickable dropdown list, closes on selection/outside-click.
@@ -64,7 +65,7 @@ export default function ProductDropdown({ allProducts, excludeIds = [], onSelect
             <button key={p._id} type="button"
               onClick={() => { onSelect(p); setQuery(""); setOpen(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--color-border)] text-sm text-left">
-              {p.image?.[0] && <img src={p.image[0]} alt="" className="h-8 w-8 rounded object-cover shrink-0" />}
+              {p.image?.[0] && <SafeImage src={p.image[0]} alt="" width={32} height={32} className="h-8 w-8 rounded object-cover shrink-0" />}
               <span className="flex-1 truncate">{p.name}</span>
               {p.sku && <span className="text-theme-muted text-xs shrink-0">{p.sku}</span>}
               <span className="text-theme-muted text-xs shrink-0">৳{p.price}</span>

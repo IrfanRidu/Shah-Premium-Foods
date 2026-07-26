@@ -39,8 +39,15 @@ export function middleware(request) {
   const csp = [
     "default-src 'self'",
     scriptSrc,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    // Section 9 (Performance) font-optimization follow-on: fonts.googleapis.com
+    // was here only for the manual Google Fonts <link rel="stylesheet">
+    // layout.jsx used to render. That's gone — Inter/Playfair Display are
+    // now loaded via next/font/google (src/lib/fonts.js), which downloads
+    // and self-hosts the font files at build time. Nothing is fetched from
+    // Google at runtime anymore, so both this and font-src below narrow to
+    // 'self' only — a real tightening, not just a cleanup.
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: blob: https://res.cloudinary.com https://*.cloudinary.com https://images.unsplash.com https://placehold.co",
     // ws:/wss: needed in dev for the HMR livereload websocket connection
     // back to the dev server; not needed (and not included) in production.
@@ -56,6 +63,35 @@ export function middleware(request) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
+
+  // Section 10 (SEO) — "Robots": every page.jsx in this app is a Client
+  // Component (confirmed across the whole src/app tree), and Next.js only
+  // allows a `metadata` / `generateMetadata` export from a Server
+  // Component file — so per-route noindex metadata can't be added directly
+  // to these pages without a separate pass-through layout.js wrapping each
+  // one. The `X-Robots-Tag` response header says exactly the same thing at
+  // the HTTP level (Google's own documented mechanism for this), and this
+  // middleware already runs on every request in the app, so one addition
+  // here covers every route below without touching ~10 page files
+  // individually. Cart/checkout/auth screens are real, publicly-reachable
+  // pages with no unique content worth ranking (and account/cart state
+  // means any indexed snapshot would be stale or empty anyway) — the
+  // correct tool for "don't index this, but crawling it is fine" is
+  // noindex, not robots.txt Disallow (Disallow would hide the noindex
+  // signal from the crawler entirely and can paradoxically leave a bare,
+  // snippet-less URL indexed instead of none at all). /dashboard gets this
+  // header too AND a robots.txt Disallow (see app/robots.txt/route.js) —
+  // deliberate defense in depth, since it's also genuinely auth-walled.
+  const NOINDEX_PATHS = [
+    "/cart", "/checkout", "/login", "/register", "/forgot-password",
+    "/reset-password", "/verify-otp", "/success", "/cancel", "/dashboard",
+  ];
+  const pathname = request.nextUrl.pathname;
+  const isNoindex = NOINDEX_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (isNoindex) {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  }
+
   return response;
 }
 

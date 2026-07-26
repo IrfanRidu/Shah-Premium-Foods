@@ -1,143 +1,149 @@
-"use client";
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { useSelector } from "react-redux";
-import { FaChevronLeft, FaChevronRight, FaShoppingCart } from "react-icons/fa";
-import Axios from "@/lib/axios";
-import api from "@/lib/api";
-import { displayPrice, priceWithDiscount, extractIdFromSlug, validURLConvert } from "@/lib/utils";
-import { getCampaignIcon } from "@/lib/campaignIcons";
-import AddToCartButton from "@/components/AddToCartButton";
-import ProductCard from "@/components/ProductCard";
-import HorizontalScroll from "@/components/HorizontalScroll";
-import { useGlobalContext } from "@/providers/GlobalProvider";
-import CampaignSection from "@/components/CampaignSection";
-import toast from "react-hot-toast";
+import { notFound } from "next/navigation";
+import { headers } from "next/headers";
+import Link from "next/link";
+import { getProductBySlug } from "@/server/data/product";
+import { validURLConvert } from "@/lib/slug";
+import ProductGallery from "@/components/ProductGallery";
+import ProductPurchasePanel from "@/components/ProductPurchasePanel";
+import ProductPageCampaigns from "@/components/ProductPageCampaigns";
+import ProductSuggestions from "@/components/ProductSuggestions";
 
-export default function ProductPage() {
-  const { product: slug } = useParams();
-  const router    = useRouter();
-  const { logActivity, fetchCartItems } = useGlobalContext();
-  const currency  = useSelector((s) => s.currency.selected);
-  const rates     = useSelector((s) => s.currency.rates);
-  const cart      = useSelector((s) => s.cartItem.cart);
-  const userId    = useSelector((s) => s.user._id);
-  const campaigns = useSelector((s) => s.campaign.campaigns);
+// Section 9 (Performance) — "ISR": this used to be a fully client-rendered
+// page (data fetched in a useEffect after mount, with a loading skeleton
+// shown until it resolved). Now it's a Server Component that fetches the
+// product directly (see server/data/product.js) and is revalidated at
+// most once a minute rather than computed fresh on every single request —
+// real content on first paint, no fetch-after-mount waterfall, no
+// skeleton flash, and a proper cacheable response instead of one always
+// recomputed from scratch. 60s balances that against price/stock staying
+// reasonably current; checkout still re-validates the live price/stock
+// server-side regardless of what this page displays.
+export const revalidate = 60;
 
-  const [product,     setProduct]     = useState(null);
-  const [imgIdx,      setImgIdx]      = useState(0);
-  const [loading,     setLoading]     = useState(true);
-  const [suggestions, setSuggestions] = useState([]);
-  const [buying,      setBuying]      = useState(false);
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
 
-  const productId = extractIdFromSlug(slug);
+// Section 10 (SEO) — the single biggest gap this pass found: every product
+// page previously shared the exact same sitewide default title/description
+// (the old page had no generateMetadata at all), so none of them were
+// individually indexable/shareable with their own identity. This fixes
+// that with real per-product title, description, canonical, Open Graph,
+// and Twitter Card metadata, all built from the actual product.
+export async function generateMetadata({ params }) {
+  const product = await getProductBySlug(params.product);
+  if (!product) return {}; // page body's own notFound() call below 404s; nothing product-specific to add here
 
-  useEffect(() => {
-    if (!productId) return;
-    (async () => {
-      try {
-        setLoading(true);
-        const r = await Axios({ ...api.getProductDetails, data: { productId } });
-        setProduct(r.data?.data || null);
-        // Log product view for activity tracking
-        logActivity("view", { productId, categoryId: r.data?.data?.category?.[0]?._id });
-      } catch {}
-      finally { setLoading(false); }
-    })();
-  }, [productId]);
+  const rawDescription = product.description?.trim() || `Buy ${product.name} online at the best price.`;
+  const description = rawDescription.length > 160
+    ? `${rawDescription.slice(0, 157).replace(/\s+\S*$/, "")}…`
+    : rawDescription;
+  const canonicalPath = `/product/${validURLConvert(product.name, product._id)}`;
+  const images = product.image?.length ? product.image : undefined;
 
-  // Fetch suggestions after product loads
-  useEffect(() => {
-    if (!productId) return;
-    Axios({ ...api.getSuggestions, params: { productId, limit: 12 } })
-      .then((r) => setSuggestions(r.data?.data || []))
-      .catch(() => {});
-  }, [productId]);
-
-  // "Buy Now" — add to cart then go directly to checkout
-  const handleBuyNow = async () => {
-    if (!userId) { toast.error("Please login first"); router.push("/login"); return; }
-    try {
-      setBuying(true);
-      const cartItem = cart.find((i) => (i.productId?._id || i.productId) === product._id);
-      if (!cartItem) {
-        const r = await Axios({ ...api.addToCart, data: { productId: product._id } });
-        if (r.data?.success) await fetchCartItems();
-      }
-      router.push("/checkout");
-    } catch { toast.error("Failed to add to cart"); }
-    finally { setBuying(false); }
+  return {
+    // Composed by the root layout's title.template into "ProductName | SiteName".
+    title: product.name,
+    description,
+    alternates: { canonical: canonicalPath },
+    openGraph: {
+      title: product.name,
+      description,
+      url: canonicalPath,
+      // "product" isn't one of next/dist's typed openGraph.type values
+      // (website/article/book/profile/music.*/video.*) — "website" is the
+      // safe, well-supported choice; the richer product-specific markup
+      // (price, availability, SKU) lives in the Product JSON-LD below,
+      // which has full, unambiguous schema.org support for exactly that.
+      type: "website",
+      ...(images ? { images } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: product.name,
+      description,
+      ...(images ? { images } : {}),
+    },
   };
+}
 
-  if (loading) return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="grid md:grid-cols-2 gap-8">
-        <div className="skeleton aspect-square rounded-2xl" />
-        <div className="space-y-4">
-          <div className="skeleton h-8 w-3/4 rounded" />
-          <div className="skeleton h-5 w-1/4 rounded" />
-          <div className="skeleton h-6 w-1/2 rounded" />
-          <div className="skeleton h-12 w-full rounded-full" />
-        </div>
-      </div>
-    </div>
-  );
-
-  if (!product) return <div className="container mx-auto px-4 py-20 text-center text-theme-muted">Product not found</div>;
+export default async function ProductPage({ params }) {
+  const product = await getProductBySlug(params.product);
+  if (!product) notFound();
 
   const images = product.image || [];
-  const activeCampaign = campaigns.find((c) =>
-    c.products?.some((p) => (p.productId?._id || p.productId)?.toString() === product._id?.toString())
-  );
-  const campaignEntry = activeCampaign?.products?.find(
-    (p) => (p.productId?._id || p.productId)?.toString() === product._id?.toString()
-  );
-  const campaignDiscount = campaignEntry?.specialDiscount || 0;
-  const activeDiscount   = campaignDiscount || product.discount || 0;
-  const discounted       = priceWithDiscount(product.price, activeDiscount);
-  const isCampaign       = !!activeCampaign;
-  const CampaignIcon     = getCampaignIcon(activeCampaign?.icon);
-  const campaignLabel    = activeCampaign?.name || "Flash Sale";
+  const category = product.category?.[0];
+  const canonicalPath = `/product/${validURLConvert(product.name, product._id)}`;
+  const nonce = (await headers()).get("x-csp-nonce") || "";
 
-  // Campaigns that should show on product pages
-  const productPageCampaigns = campaigns.filter((c) => c.showOnProductPage && c.isActive);
+  // Section 10 (SEO) — Product structured data. Price/currency/availability
+  // straight from the same data every visitor sees (BDT is this app's
+  // base currency — see store/currencySlice.js's baseCurrency — structured
+  // data describes the canonical listing, not a visitor's chosen display
+  // currency, same as how every major e-commerce site's Product schema
+  // works regardless of client-side currency switchers).
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    ...(images.length ? { image: images } : {}),
+    ...(product.description ? { description: product.description } : {}),
+    ...(product.sku ? { sku: product.sku } : {}),
+    offers: {
+      "@type": "Offer",
+      url: `${SITE_URL}${canonicalPath}`,
+      priceCurrency: "BDT",
+      price: product.price,
+      availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+    },
+  };
+
+  // Section 10 (SEO) — Breadcrumbs: both the visible UI (previously absent
+  // on this page entirely — category/subcategory pages already had one)
+  // and the matching BreadcrumbList JSON-LD.
+  const breadcrumbItems = [
+    { name: "Home", url: "/" },
+    ...(category ? [{ name: category.name, url: `/category/${validURLConvert(category.name, category._id)}` }] : []),
+    { name: product.name, url: canonicalPath },
+  ];
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: breadcrumbItems.map((item, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: item.name,
+      item: `${SITE_URL}${item.url}`,
+    })),
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-10">
+      <script
+        nonce={nonce}
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c") }}
+      />
+      <script
+        nonce={nonce}
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, "\\u003c") }}
+      />
+
+      {/* Breadcrumb UI */}
+      <nav aria-label="Breadcrumb" className="text-sm text-theme-muted flex items-center gap-1.5 flex-wrap -mb-4">
+        {breadcrumbItems.map((item, i) => (
+          <span key={item.url} className="flex items-center gap-1.5">
+            {i > 0 && <span className="opacity-50">/</span>}
+            {i === breadcrumbItems.length - 1
+              ? <span className="text-theme font-medium">{item.name}</span>
+              : <Link href={item.url} className="hover:text-theme-primary transition-colors">{item.name}</Link>
+            }
+          </span>
+        ))}
+      </nav>
+
       {/* Product detail grid */}
       <div className="grid md:grid-cols-2 gap-8 lg:gap-16">
-        {/* Images */}
-        <div>
-          <div className="relative rounded-2xl overflow-hidden bg-[var(--color-surface)] aspect-square mb-3 group">
-            {images[imgIdx] && <img src={images[imgIdx]} alt={product.name} className="w-full h-full object-cover" />}
-            {isCampaign && (
-              <span className="absolute top-3 left-3 flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold text-white shadow"
-                style={{ backgroundColor: activeCampaign?.badgeColor || "#ef4444" }}>
-                <CampaignIcon size={12} /> {campaignLabel} — {campaignDiscount}% OFF
-              </span>
-            )}
-            {images.length > 1 && (<>
-              <button onClick={() => setImgIdx((p) => (p - 1 + images.length) % images.length)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 h-9 w-9 bg-white/80 rounded-full flex items-center justify-center shadow opacity-0 group-hover:opacity-100 transition-opacity">
-                <FaChevronLeft size={14} />
-              </button>
-              <button onClick={() => setImgIdx((p) => (p + 1) % images.length)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 h-9 w-9 bg-white/80 rounded-full flex items-center justify-center shadow opacity-0 group-hover:opacity-100 transition-opacity">
-                <FaChevronRight size={14} />
-              </button>
-            </>)}
-          </div>
-          {images.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto">
-              {images.map((img, i) => (
-                <button key={i} onClick={() => setImgIdx(i)}
-                  className={`h-16 w-16 shrink-0 rounded-xl overflow-hidden border-2 transition-all ${i === imgIdx ? "border-theme-primary" : "border-transparent opacity-60"}`}>
-                  <img src={img} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductGallery images={images} productId={product._id} productName={product.name} />
 
         {/* Info */}
         <div className="space-y-4">
@@ -149,36 +155,7 @@ export default function ProductPage() {
           {product.unit && <p className="text-sm text-theme-muted">Unit: {product.unit}</p>}
           {product.sku  && <p className="text-xs text-theme-muted font-mono">SKU: {product.sku}</p>}
 
-          {/* Price */}
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <span className={`text-3xl font-bold ${isCampaign ? "text-red-500" : "text-theme-primary"}`}>
-              {displayPrice(discounted, currency, rates)}
-            </span>
-            {activeDiscount > 0 && <>
-              <span className="text-lg text-theme-muted line-through">{displayPrice(product.price, currency, rates)}</span>
-              <span className="badge">{activeDiscount}% off</span>
-            </>}
-          </div>
-
-          {/* Stock info */}
-          {product.stock === 0
-            ? <span className="inline-block bg-red-100 text-red-600 text-xs font-semibold px-3 py-1 rounded-full">Out of Stock</span>
-            : product.stock <= (product.lowStockThreshold || 10)
-              ? <span className="inline-block bg-orange-100 text-orange-600 text-xs font-semibold px-3 py-1 rounded-full">Only {product.stock} left!</span>
-              : <span className="inline-block bg-green-100 text-green-600 text-xs font-semibold px-3 py-1 rounded-full">In Stock</span>
-          }
-
-          {/* CTA buttons */}
-          {product.stock > 0 && (
-            <div className="flex gap-3 flex-wrap">
-              <div className="flex-1 min-w-[140px]"><AddToCartButton product={product} /></div>
-              <button onClick={handleBuyNow} disabled={buying}
-                className="flex-1 min-w-[140px] flex items-center justify-center gap-2 btn-primary py-2 text-sm disabled:opacity-60">
-                <FaShoppingCart size={14} />
-                {buying ? "Adding…" : "Buy Now"}
-              </button>
-            </div>
-          )}
+          <ProductPurchasePanel product={product} />
 
           {/* Description */}
           {product.description && (
@@ -206,21 +183,10 @@ export default function ProductPage() {
       </div>
 
       {/* Campaign sections relevant to this product page */}
-      {productPageCampaigns.map((c) => <CampaignSection key={c._id} campaign={c} />)}
+      <ProductPageCampaigns />
 
       {/* Similar Products */}
-      {suggestions.length > 0 && (
-        <section>
-          <h2 className="section-heading text-xl mb-4">You May Also Like</h2>
-          <HorizontalScroll>
-            {suggestions.map((p) => (
-              <div key={p._id} className="shrink-0 w-44 sm:w-52">
-                <ProductCard product={p} />
-              </div>
-            ))}
-          </HorizontalScroll>
-        </section>
-      )}
+      <ProductSuggestions productId={product._id} />
     </div>
   );
 }

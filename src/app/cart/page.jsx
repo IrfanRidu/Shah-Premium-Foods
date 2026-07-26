@@ -8,6 +8,7 @@ import { displayPrice, priceWithDiscount } from "@/lib/utils";
 import AddToCartButton from "@/components/AddToCartButton";
 import NoData from "@/components/NoData";
 import CouponInput from "@/components/CouponInput";
+import SafeImage from "@/components/SafeImage";
 
 export default function CartPage() {
   const cart     = useSelector((s) => s.cartItem.cart);
@@ -58,7 +59,7 @@ export default function CartPage() {
             return (
               <div key={item._id} className="bg-[var(--color-surface)] border border-theme rounded-2xl p-4 flex gap-4 items-center">
                 <Link href={`/product/${p._id}`} className="shrink-0">
-                  <img src={p.image?.[0]} alt={p.name} className="h-20 w-20 rounded-xl object-cover" />
+                  <SafeImage src={p.image?.[0]} alt={p.name} width={80} height={80} className="h-20 w-20 rounded-xl object-cover" />
                 </Link>
                 <div className="flex-1 min-w-0">
                   <Link href={`/product/${p._id}`} className="font-semibold text-sm line-clamp-2 hover:text-theme-primary">{p.name}</Link>

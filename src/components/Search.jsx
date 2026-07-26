@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { validURLConvert, displayPrice } from "@/lib/utils";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import { useTranslation } from "@/lib/i18n";
+import SafeImage from "./SafeImage";
 
 // Bolds the portion of `name` that matches the typed query, so suggestions
 // visibly respond to what the customer is typing as they type it.
@@ -109,7 +110,7 @@ export default function Search() {
           {!loading && results.map((p) => (
             <button key={p._id} onClick={() => goProduct(p)}
               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--color-border)] text-left transition-colors">
-              {p.image?.[0] && <img src={p.image[0]} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />}
+              {p.image?.[0] && <SafeImage src={p.image[0]} alt="" width={40} height={40} className="h-10 w-10 rounded-lg object-cover shrink-0" />}
               <span className="flex-1 min-w-0">
                 <span className="text-sm font-medium truncate block"><HighlightMatch text={p.name} query={q} /></span>
                 {p.unit && <span className="text-xs text-theme-muted">{p.unit}</span>}

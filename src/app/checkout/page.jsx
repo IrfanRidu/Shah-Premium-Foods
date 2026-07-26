@@ -10,6 +10,7 @@ import { resetCart } from "@/store/cartSlice";
 import { clearAppliedCoupon } from "@/store/couponSlice";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import NoData from "@/components/NoData";
+import SafeImage from "@/components/SafeImage";
 import { FaTruck, FaInfoCircle } from "react-icons/fa";
 import { useTranslation } from "@/lib/i18n";
 import toast from "react-hot-toast";
@@ -322,7 +323,7 @@ export default function CheckoutPage() {
               const p = item.productId; if (!p) return null;
               return (
                 <div key={item._id} className="flex gap-2 items-center text-sm">
-                  <img src={p.image?.[0]} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />
+                  <SafeImage src={p.image?.[0]} alt="" width={40} height={40} className="h-10 w-10 rounded-lg object-cover shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="truncate font-medium">{p.name}</p>
                     <p className="text-theme-muted text-xs">x{item.quantity}</p>

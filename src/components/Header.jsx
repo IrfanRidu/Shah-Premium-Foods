@@ -10,6 +10,7 @@ import {
 import Search from "./Search";
 import UserMenu from "./UserMenu";
 import PreferenceSelector from "./PreferenceSelector";
+import SafeImage from "./SafeImage";
 import { validURLConvert, displayPrice, priceWithDiscount } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
@@ -128,7 +129,14 @@ export default function Header() {
 
         <Link href="/" className="flex items-center gap-2 shrink-0">
           {settings.logo
-            ? <img src={settings.logo} alt={settings.siteName} className="h-9 w-auto" />
+            ? <SafeImage
+                src={settings.logo}
+                alt={settings.siteName}
+                width={160}
+                height={36}
+                className="h-9 w-auto"
+                priority
+              />
             : <span className="font-display text-xl md:text-2xl font-bold text-theme-primary">
                 {settings.siteName || "Shah Premium Foods"}
               </span>
@@ -166,7 +174,7 @@ export default function Header() {
                         className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm text-left transition-colors ${activecat?._id === cat._id ? "bg-theme-primary text-white" : "hover:bg-[var(--color-border)]"}`}
                       >
                         <span className="flex items-center gap-2 truncate">
-                          {cat.image && <img src={cat.image} alt="" className="h-6 w-6 rounded-full object-cover" />}
+                          {cat.image && <SafeImage src={cat.image} alt="" width={24} height={24} className="h-6 w-6 rounded-full object-cover" />}
                           {cat.name}
                         </span>
                         <FaChevronRight className="text-xs shrink-0" />
@@ -180,7 +188,7 @@ export default function Header() {
                     : subsForActive.map((sub) => (
                       <button key={sub._id} onClick={() => goSub(activecat, sub)}
                         className="flex items-center gap-2 text-sm text-left px-3 py-2 rounded-lg hover:bg-[var(--color-border)] transition-colors">
-                        {sub.image && <img src={sub.image} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />}
+                        {sub.image && <SafeImage src={sub.image} alt="" width={32} height={32} className="h-8 w-8 rounded-md object-cover shrink-0" />}
                         <span className="truncate">{sub.name}</span>
                       </button>
                     ))
@@ -218,7 +226,7 @@ export default function Header() {
             >
               <button onClick={onUserClick} className="text-2xl flex items-center" aria-label="Account">
                 {user.avatar
-                  ? <img src={user.avatar} alt={user.name} className="h-8 w-8 rounded-full object-cover" />
+                  ? <SafeImage src={user.avatar} alt={user.name} width={32} height={32} className="h-8 w-8 rounded-full object-cover" />
                   : <FaRegUserCircle />
                 }
               </button>

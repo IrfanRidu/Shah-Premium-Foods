@@ -8,8 +8,16 @@ import { setOrder } from "@/store/orderSlice";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import NoData from "@/components/NoData";
 import ConfirmBox from "@/components/ConfirmBox";
-import InvoiceModal from "@/components/InvoiceModal";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
+import dynamic from "next/dynamic";
+
+// Section 9 (Performance): dynamic + ssr:false — InvoiceModal (and the
+// jspdf/jsbarcode it already dynamically imports internally, see that
+// file) is only ever needed after the user clicks to view a specific
+// order's invoice, and it uses browser-only APIs (window.open for
+// printing) that have no server-render value anyway.
+const InvoiceModal = dynamic(() => import("@/components/InvoiceModal"), { ssr: false });
 
 const STATUS_COLOR = {
   Pending:    "bg-yellow-100 text-yellow-700",
@@ -107,7 +115,7 @@ export default function MyOrdersPage() {
               <div className="flex gap-3 overflow-x-auto pb-1 mb-4">
                 {order.productDetails?.map?.((item, i) => (
                   <div key={i} className="shrink-0 flex items-center gap-2 bg-[var(--color-bg)] border border-theme rounded-xl p-2 min-w-[160px]">
-                    {item.image?.[0] && <img src={item.image[0]} alt={item.name} className="h-12 w-12 rounded-lg object-cover" />}
+                    {item.image?.[0] && <SafeImage src={item.image[0]} alt={item.name} width={48} height={48} className="h-12 w-12 rounded-lg object-cover" />}
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{item.name}</p>
                       <p className="text-xs text-theme-muted">x{item.quantity}</p>

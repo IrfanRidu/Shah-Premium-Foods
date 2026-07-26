@@ -6,6 +6,7 @@ import api from "@/lib/api";
 import { axiosToastError } from "@/lib/utils";
 import ConfirmBox from "@/components/ConfirmBox";
 import ProductDropdown from "@/components/ProductDropdown";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const empty = { code:"", type:"percentage", value:"", minOrderAmount:"", maxDiscount:"", usageLimit:"", perUserLimit:"1", validFrom:"", validTo:"", isActive:true, description:"", applicableProducts:[] };
@@ -125,7 +126,7 @@ function CouponModal({ defaultValues, allProducts, productsLoading, productsErro
               <div className="flex flex-wrap gap-2 mt-3">
                 {form.applicableProducts.map(p => (
                   <span key={p._id} className="flex items-center gap-1.5 bg-[var(--color-bg)] border border-theme rounded-full pl-1 pr-2 py-1 text-xs">
-                    {p.image?.[0] && <img src={p.image[0]} alt="" className="h-5 w-5 rounded-full object-cover"/>}
+                    {p.image?.[0] && <SafeImage src={p.image[0]} alt="" width={20} height={20} className="h-5 w-5 rounded-full object-cover"/>}
                     <span className="max-w-[140px] truncate">{p.name}</span>
                     <button type="button" onClick={() => removeProduct(p._id)} className="text-theme-muted hover:text-red-500">
                       <FaTimes size={9}/>

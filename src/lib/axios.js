@@ -5,9 +5,9 @@ import axios from "axios";
 // if the API is genuinely hosted on a different domain.
 export const baseURL = process.env.NEXT_PUBLIC_API_URL || "";
 
-const Axios = axios.create({ baseURL, withCredentials: true });
+const axiosInstance = axios.create({ baseURL, withCredentials: true });
 
-Axios.interceptors.request.use((config) => {
+axiosInstance.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("accessToken");
     if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -35,7 +35,7 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-Axios.interceptors.response.use(
+axiosInstance.interceptors.response.use(
   (res) => res,
   async (err) => {
     const orig = err.config;
@@ -48,7 +48,7 @@ Axios.interceptors.response.use(
         if (orig._retryCount < MAX_RETRIES) {
           orig._retryCount += 1;
           await sleep(RETRY_DELAY_MS * orig._retryCount);
-          return Axios(orig);
+          return axiosInstance(orig);
         }
       }
     }
@@ -78,7 +78,7 @@ Axios.interceptors.response.use(
             // "randomly logged out everywhere," so this isn't optional.
             if (newRefreshToken) localStorage.setItem("refreshToken", newRefreshToken);
             orig.headers.Authorization = `Bearer ${newAccessToken}`;
-            return Axios(orig);
+            return axiosInstance(orig);
           }
         } catch {}
       }
@@ -86,5 +86,86 @@ Axios.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+// ── Section 9 (Performance) — request de-duplication ───────────────────────
+//
+// This app's read endpoints aren't uniformly HTTP GET — several
+// conceptually read-only lookups (product listings, product details,
+// category-filtered listings, search) are sent as POST-with-body (see
+// lib/api.js's `method` field for each), so a naive "dedupe every GET" rule
+// would miss most of the actual duplicate-request risk, and a naive
+// "dedupe every POST" rule would be actively dangerous — this codebase also
+// sends real mutations over POST (addToCart, checkoutOrder, createCampaign…)
+// and, unconventionally, sends `logout` over GET. HTTP verb alone doesn't
+// tell you what's safe to dedupe here.
+//
+// So this is an explicit allowlist of endpoint paths that are genuinely
+// side-effect-free reads — not a blanket rule. When two identical requests
+// to one of these paths (same method + URL + params/body) are in flight at
+// the same moment — e.g. GlobalProvider fetching categories on boot at the
+// same instant a page component also asks for them — the second call
+// reuses the first call's still-pending promise instead of firing a
+// duplicate network request. The instant the request settles (success or
+// failure) the entry is removed, so the very next call always goes to the
+// network fresh. This is concurrent in-flight de-duplication, a different
+// (and safe to combine with) concern from lib/cache.js's server-side,
+// time-based caching.
+const DEDUPABLE_PATHS = new Set([
+  "/api/product/get",
+  "/api/product/get-product-by-category",
+  "/api/product/get-product-by-category-and-subcategory",
+  "/api/product/get-product-details",
+  "/api/product/search",
+  "/api/category/get",
+  "/api/subcategory/get",
+  "/api/settings/get",
+  "/api/settings/faq",
+  "/api/campaigns/active",
+  "/api/coupons/active",
+  "/api/currency/rates",
+  "/api/activity/suggestions",
+]);
+
+const inFlightRequests = new Map();
+
+// Builds a stable key from method + url + params/body. Returns null for
+// anything that can't be safely stringified (e.g. FormData) — those simply
+// never dedupe, which is always the safe fallback. In practice this never
+// hits a FormData body since uploads aren't in DEDUPABLE_PATHS at all.
+function buildDedupKey(config) {
+  const method = (config.method || "get").toLowerCase();
+  const url = config.url || "";
+  try {
+    const paramsPart = config.params !== undefined ? `|p:${JSON.stringify(config.params)}` : "";
+    const dataPart = config.data !== undefined ? `|d:${JSON.stringify(config.data)}` : "";
+    return `${method}:${url}${paramsPart}${dataPart}`;
+  } catch {
+    return null;
+  }
+}
+
+// The exported wrapper. Every existing call site does `Axios({ ...api.x })`
+// — a plain function call with a config object — and nothing in the
+// codebase calls convenience methods like `Axios.get(...)` or reaches for
+// `Axios.interceptors` from outside this file (confirmed by grep before
+// making this change), so replacing the exported value with a plain
+// wrapper function is a fully compatible, non-breaking change.
+function Axios(config = {}) {
+  const url = config.url || "";
+  if (!DEDUPABLE_PATHS.has(url)) {
+    return axiosInstance(config);
+  }
+  const key = buildDedupKey(config);
+  if (key === null) return axiosInstance(config);
+
+  const existing = inFlightRequests.get(key);
+  if (existing) return existing;
+
+  const promise = axiosInstance(config).finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, promise);
+  return promise;
+}
 
 export default Axios;

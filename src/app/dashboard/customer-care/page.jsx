@@ -8,6 +8,7 @@ import {
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { displayPrice, axiosToastError, isSuperAdmin } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const ORDER_STATUSES = ["All","Pending","Confirmed","On-Hold","On the way","Delivered","Cancelled","Return","Refunded"];
@@ -201,7 +202,7 @@ function OrdersTab() {
                     <div className="space-y-2">
                       {order.productDetails?.map((item, i) => (
                         <div key={i} className="flex items-center gap-3 text-sm">
-                          {item.image?.[0] && <img src={item.image[0]} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />}
+                          {item.image?.[0] && <SafeImage src={item.image[0]} alt="" width={40} height={40} className="h-10 w-10 rounded-lg object-cover shrink-0" />}
                           <span className="flex-1 min-w-0 truncate">{item.name}</span>
                           <span className="text-theme-muted shrink-0">Qty: {item.quantity}</span>
                           <span className="font-semibold shrink-0 w-20 text-right">{displayPrice(item.price * item.quantity, currency, rates)}</span>

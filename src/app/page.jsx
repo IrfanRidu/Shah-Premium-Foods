@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, memo } from "react";
 import { useSelector } from "react-redux";
 import Link from "next/link";
 import Carousel from "@/components/Carousel";
 import ProductCard from "@/components/ProductCard";
 import CampaignSection from "@/components/CampaignSection";
 import HorizontalScroll from "@/components/HorizontalScroll";
+import SafeImage from "@/components/SafeImage";
 import { CardSkeleton } from "@/components/Loading";
 import { validURLConvert } from "@/lib/utils";
 import Axios from "@/lib/axios";
@@ -13,7 +14,13 @@ import api from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { FaListUl, FaChevronDown, FaChevronUp, FaShoppingBasket } from "react-icons/fa";
 
-// Product row section
+// Product row section.
+// Section 9 (Performance): memoized — the homepage renders several of
+// these (trending/bestselling/new-arrivals/etc, see HomePage below), each
+// backed by its OWN independent fetch/state. Without memo, every row
+// re-renders whenever ANY of them updates (they're all children of the
+// same HomePage component), even though only one row's `products`/`loading`
+// actually changed.
 function ProductRow({ title, icon, subtitle, products, loading }) {
   if (!loading && products.length === 0) return null;
   return (
@@ -42,6 +49,7 @@ function ProductRow({ title, icon, subtitle, products, loading }) {
     </section>
   );
 }
+const MemoProductRow = memo(ProductRow);
 
 // Interleave campaigns between product rows.
 //
@@ -281,9 +289,9 @@ export default function HomePage() {
                 href={`/category/${validURLConvert(cat.name, cat._id)}`}
                 className="shrink-0 flex flex-col items-center gap-2 group"
               >
-                <div className="h-16 w-16 rounded-2xl overflow-hidden bg-[var(--color-surface)] border border-theme shadow-sm group-hover:shadow-md group-hover:-translate-y-1 transition-all">
+                <div className="relative h-16 w-16 rounded-2xl overflow-hidden bg-[var(--color-surface)] border border-theme shadow-sm group-hover:shadow-md group-hover:-translate-y-1 transition-all">
                   {cat.image
-                    ? <img src={cat.image} alt={cat.name} className="w-full h-full object-cover" />
+                    ? <SafeImage src={cat.image} alt={cat.name} fill sizes="64px" className="object-cover" />
                     : <div className="w-full h-full bg-gradient-to-br from-sage-100 to-sage-200" />
                   }
                 </div>
@@ -321,7 +329,7 @@ export default function HomePage() {
             return <SectionSpacer key={`spacer-${i}`} />;
           }
           const { id, ...rowProps } = block.row;
-          return <ProductRow key={id} {...rowProps} />;
+          return <MemoProductRow key={id} {...rowProps} />;
         })}
       </div>
 

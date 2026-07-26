@@ -6,6 +6,7 @@ import api from "@/lib/api";
 import { axiosToastError, displayPrice } from "@/lib/utils";
 import { useSelector } from "react-redux";
 import BarcodeScanner from "@/components/BarcodeScanner";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 function AdjustModal({ product, onClose, onSaved }) {
@@ -106,7 +107,7 @@ function ScanPanel({ currency, rates, onAdjust, onProductChanged }) {
 
       {!loading && result?.type === "product" && (
         <div className="bg-[var(--color-surface)] border-2 border-theme-primary rounded-2xl p-5 flex gap-4 flex-wrap">
-          {result.product.image?.[0] && <img src={result.product.image[0]} alt="" className="h-24 w-24 rounded-xl object-cover shrink-0" />}
+          {result.product.image?.[0] && <SafeImage src={result.product.image[0]} alt="" width={96} height={96} className="h-24 w-24 rounded-xl object-cover shrink-0" />}
           <div className="flex-1 min-w-[200px]">
             <h3 className="font-display text-lg font-semibold">{result.product.name}</h3>
             <p className="text-xs text-theme-muted font-mono mb-1">SKU: {result.product.sku || result.product._id}</p>
@@ -141,7 +142,7 @@ function ScanPanel({ currency, rates, onAdjust, onProductChanged }) {
           <div className="space-y-1.5">
             {result.order.productDetails?.map((item, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                {item.image?.[0] && <img src={item.image[0]} alt="" className="h-8 w-8 rounded object-cover" />}
+                {item.image?.[0] && <SafeImage src={item.image[0]} alt="" width={32} height={32} className="h-8 w-8 rounded object-cover" />}
                 <span className="flex-1 truncate">{item.name}</span>
                 <span className="text-theme-muted">x{item.quantity}</span>
               </div>
@@ -240,7 +241,7 @@ export default function InventoryPage() {
                       <tr key={p._id}>
                         <td>
                           <div className="flex items-center gap-2">
-                            {p.image?.[0] && <img src={p.image[0]} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0"/>}
+                            {p.image?.[0] && <SafeImage src={p.image[0]} alt="" width={36} height={36} className="h-9 w-9 rounded-lg object-cover shrink-0"/>}
                             <div><p className="font-medium text-sm truncate max-w-[180px]">{p.name}</p><p className="text-xs text-theme-muted">{p.unit}</p></div>
                           </div>
                         </td>

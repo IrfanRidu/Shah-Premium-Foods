@@ -4,6 +4,7 @@ import { useTranslation } from "@/lib/i18n";
 import Link from "next/link";
 import { FaFacebook, FaInstagram, FaTwitter, FaYoutube, FaMapMarkerAlt, FaPhone, FaEnvelope } from "react-icons/fa";
 import { safeExternalUrl } from "@/lib/utils";
+import SafeImage from "./SafeImage";
 
 export default function Footer() {
   const { t }    = useTranslation();
@@ -22,7 +23,7 @@ export default function Footer() {
         {/* Col 1: Brand / About */}
         <div className="sm:col-span-2 md:col-span-1">
           {settings.logo
-            ? <img src={settings.logo} alt={settings.siteName} className="h-10 w-auto mb-3 opacity-90" />
+            ? <SafeImage src={settings.logo} alt={settings.siteName} width={180} height={40} className="h-10 w-auto mb-3 opacity-90" />
             : <h3 className="font-display text-lg font-semibold mb-3">{settings.siteName || "Shah Premium Foods"}</h3>
           }
           <p className="opacity-75 leading-relaxed text-sm">
@@ -129,8 +130,8 @@ export default function Footer() {
           {paymentMethods.length > 0 && (
             <div className="flex items-center gap-3 flex-wrap justify-center">
               {paymentMethods.map((pm, i) => (
-                <img key={pm._id || i} src={pm.image} alt={pm.name || "Payment method"}
-                  title={pm.name} className="h-6 w-auto object-contain opacity-80 hover:opacity-100 transition-opacity bg-transparent" />
+                <SafeImage key={pm._id || i} src={pm.image} alt={pm.name || "Payment method"}
+                  title={pm.name} width={48} height={24} className="h-6 w-auto object-contain opacity-80 hover:opacity-100 transition-opacity bg-transparent" />
               ))}
             </div>
           )}

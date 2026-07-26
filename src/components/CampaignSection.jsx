@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
 import { FaChevronRight } from "react-icons/fa";
 import { displayPrice, priceWithDiscount, validURLConvert } from "@/lib/utils";
 import { getCampaignIcon } from "@/lib/campaignIcons";
+import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
 import HorizontalScroll from "./HorizontalScroll";
 
@@ -58,10 +59,12 @@ function CampaignProductCard({ item, badgeColor }) {
       className="shrink-0 w-44 sm:w-52 cursor-pointer product-card group"
     >
       <div className="relative overflow-hidden bg-[var(--color-bg)] aspect-square">
-        <img
+        <SafeImage
           src={product.image?.[0]}
           alt={product.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          fill
+          sizes="(max-width: 640px) 176px, 208px"
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
         {discount > 0 && (
           <span
@@ -90,6 +93,11 @@ function CampaignProductCard({ item, badgeColor }) {
     </div>
   );
 }
+
+// Section 9 (Performance): CampaignProductCard is a list item (rendered via
+// .map() inside HorizontalScroll below) — same reasoning as ProductCard's
+// own memo() wrap.
+const MemoCampaignProductCard = memo(CampaignProductCard);
 
 // Fix 21: the header bar's background now honors badgeStyle — "solid" (the
 // Solid/gradient badges use a compact bar background; kept as its own
@@ -123,7 +131,10 @@ function CountdownRow({ time, textColor }) {
   );
 }
 
-export default function CampaignSection({ campaign }) {
+// Section 9 (Performance): wrapped in memo() at export below — same
+// reasoning as ProductCard (renders once per active campaign; shouldn't
+// re-render just because some unrelated ancestor did).
+function CampaignSection({ campaign }) {
   const time = useCountdown(campaign.endTime);
   const Icon = getCampaignIcon(campaign.icon);
   const name = campaign.name || "Flash Sale";
@@ -156,10 +167,12 @@ export default function CampaignSection({ campaign }) {
           image for text contrast and fades out toward the bottom instead. */}
       {isImageBadge ? (
         <div className="relative w-full aspect-[21/6] min-h-[140px] sm:min-h-[180px]">
-          <img
+          <SafeImage
             src={campaign.badgeImage}
             alt={name}
-            className="absolute inset-0 w-full h-full object-cover"
+            fill
+            sizes="100vw"
+            className="object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/10 to-transparent" />
           <div className="absolute inset-0 flex flex-col justify-start gap-2 p-4 sm:p-5">
@@ -194,10 +207,12 @@ export default function CampaignSection({ campaign }) {
       <div className="p-4 bg-[var(--color-bg)]">
         <HorizontalScroll autoScroll autoScrollSpeed={35}>
           {products.map((item, i) => (
-            <CampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} />
+            <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} />
           ))}
         </HorizontalScroll>
       </div>
     </section>
   );
 }
+
+export default memo(CampaignSection);

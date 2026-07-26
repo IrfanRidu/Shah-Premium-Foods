@@ -2,8 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Google Fonts ─────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
+/* ─── Fonts ─────────────────────────────────────────────────────
+ * Section 9 (Performance) — "Font optimization". This used to be a
+ * render-blocking `@import url('https://fonts.googleapis.com/...')` —
+ * DUPLICATING the exact same fonts already linked in layout.jsx's <head>
+ * (i.e. every visit fetched Inter + Playfair Display from Google twice
+ * over). Both are gone now: layout.jsx applies next/font/google's
+ * generated `--font-inter` / `--font-playfair-display` CSS variables to
+ * <html> (see src/lib/fonts.js), and the two font-family declarations
+ * below (body + .font-display/.section-heading) just reference those
+ * variables. Fonts are self-hosted, non-blocking, and fetched exactly
+ * once. */
 
 /* ─── CSS Variable Themes ───────────────────────────────────── */
 :root,
@@ -70,7 +79,7 @@
   html { scroll-behavior: smooth; }
 
   body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-inter), system-ui, sans-serif;
     background-color: var(--color-bg);
     color: var(--color-text);
     line-height: 1.6;
@@ -92,10 +101,10 @@
  */
 @layer components {
   /* ─── Typography helpers ────────────────────────────────────── */
-  .font-display { font-family: 'Playfair Display', Georgia, serif; }
+  .font-display { font-family: var(--font-playfair-display), Georgia, serif; }
 
   .section-heading {
-    font-family: 'Playfair Display', Georgia, serif;
+    font-family: var(--font-playfair-display), Georgia, serif;
     font-weight: 700;
     color: var(--color-text);
   }

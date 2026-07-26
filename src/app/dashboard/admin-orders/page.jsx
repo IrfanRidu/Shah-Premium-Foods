@@ -5,8 +5,11 @@ import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { displayPrice, axiosToastError } from "@/lib/utils";
 import { useSelector } from "react-redux";
-import InvoiceModal from "@/components/InvoiceModal";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
+import dynamic from "next/dynamic";
+
+const InvoiceModal = dynamic(() => import("@/components/InvoiceModal"), { ssr: false });
 
 const STATUSES = ["All","Pending","Confirmed","On-Hold","On the way","Delivered","Cancelled","Return","Refunded"];
 const STATUS_COLOR = {
@@ -288,7 +291,7 @@ export default function AdminOrdersPage() {
                       {order.productDetails?.map((item, i) => (
                         <div key={i} className="flex items-center gap-3">
                           {item.image?.[0] && (
-                            <img src={item.image[0]} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />
+                            <SafeImage src={item.image[0]} alt="" width={40} height={40} className="h-10 w-10 rounded-lg object-cover shrink-0" />
                           )}
                           <div className="flex-1 text-sm">
                             <p className="font-medium">{item.name}</p>

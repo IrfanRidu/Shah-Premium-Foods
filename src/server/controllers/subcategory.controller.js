@@ -1,6 +1,11 @@
 import SubCategoryModel from "../models/subcategory.model.js";
 import ProductModel from "../models/product.model.js";
 import CategoryModel from "../models/category.model.js";
+import cache from "../../lib/cache.js";
+
+// Section 9 (Performance): same reasoning as category.controller.js's own
+// comment — public, high-traffic, rarely-changing read.
+const SUBCATEGORY_CACHE_KEY = "subcategory:all";
 
 // ADD SUB CATEGORY (admin)
 export const addSubCategoryController = async (req, res) => {
@@ -23,6 +28,7 @@ export const addSubCategoryController = async (req, res) => {
     });
 
     const saved = await subCategory.save();
+    await cache.invalidate("subcategory:");
 
     return res.status(201).json({
       message: "Sub category added successfully",
@@ -42,9 +48,11 @@ export const addSubCategoryController = async (req, res) => {
 // GET ALL SUB CATEGORIES (public)
 export const getSubCategoriesController = async (req, res) => {
   try {
-    const subCategories = await SubCategoryModel.find()
-      .sort({ createdAt: -1 })
-      .populate("category");
+    const subCategories = await cache.getOrSet(
+      SUBCATEGORY_CACHE_KEY,
+      () => SubCategoryModel.find().sort({ createdAt: -1 }).populate("category"),
+      cache.TTL.MEDIUM
+    );
 
     return res.json({
       message: "Sub categories fetched successfully",
@@ -83,6 +91,7 @@ export const updateSubCategoryController = async (req, res) => {
     const updated = await SubCategoryModel.findByIdAndUpdate(_id, updateData, {
       new: true,
     });
+    await cache.invalidate("subcategory:");
 
     return res.json({
       message: "Sub category updated successfully",
@@ -125,6 +134,7 @@ export const deleteSubCategoryController = async (req, res) => {
     }
 
     await SubCategoryModel.findByIdAndDelete(_id);
+    await cache.invalidate("subcategory:");
 
     return res.json({
       message: "Sub category deleted successfully",

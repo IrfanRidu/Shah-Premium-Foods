@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { usePathname } from "next/navigation";
 import { v4 as uuid } from "uuid";
@@ -326,12 +326,27 @@ export default function GlobalProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, sessionId]);
 
+  // Section 9 (Performance) — "Remove unnecessary re-renders". Every
+  // consumer of useGlobalContext() used to re-render whenever
+  // GlobalProvider itself re-rendered (e.g. from the theme/language sync
+  // effects above), even when none of the actual functions changed —
+  // because a fresh `{ ... }` object literal is a new reference every
+  // render regardless of whether its contents are equal. All 11 functions
+  // below are already wrapped in useCallback, so memoizing the object
+  // that groups them actually works: this only produces a new reference
+  // when one of them does.
+  const contextValue = useMemo(() => ({
+    fetchUser, fetchCartItems, fetchAddress, fetchOrders,
+    fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
+    fetchExchangeRates, refreshAll, logActivity,
+  }), [
+    fetchUser, fetchCartItems, fetchAddress, fetchOrders,
+    fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
+    fetchExchangeRates, refreshAll, logActivity,
+  ]);
+
   return (
-    <GlobalContext.Provider value={{
-      fetchUser, fetchCartItems, fetchAddress, fetchOrders,
-      fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
-      fetchExchangeRates, refreshAll, logActivity,
-    }}>
+    <GlobalContext.Provider value={contextValue}>
       {children}
     </GlobalContext.Provider>
   );

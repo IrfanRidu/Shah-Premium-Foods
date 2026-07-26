@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import { isAdmin, isSuperAdmin } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
+import SafeImage from "@/components/SafeImage";
 
 const USER_LINKS = [
   { href: "/dashboard/profile",  label: "My Profile",  icon: FaUser },
@@ -79,7 +80,7 @@ export default function DashboardLayout({ children }) {
             </div>
             <div className="flex items-center gap-3">
               {user.avatar
-                ? <img src={user.avatar} alt={user.name} className="h-10 w-10 rounded-full object-cover" />
+                ? <SafeImage src={user.avatar} alt={user.name} width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
                 : <div className="h-10 w-10 rounded-full bg-[var(--color-border)] flex items-center justify-center text-theme-muted"><FaUser /></div>
               }
               <div className="min-w-0">

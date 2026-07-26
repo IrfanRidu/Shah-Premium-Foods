@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { axiosToastError, uploadImage } from "@/lib/utils";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import ConfirmBox from "@/components/ConfirmBox";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 function SubCatModal({ defaultValues, onClose }) {
@@ -56,8 +57,8 @@ function SubCatModal({ defaultValues, onClose }) {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">Image</label>
-            <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden">
-              {preview ? <img src={preview} alt="preview" className="h-full w-full object-contain" /> : <span className="text-sm text-theme-muted">Click to upload</span>}
+            <label className="relative flex flex-col items-center justify-center h-28 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden">
+              {preview ? <SafeImage src={preview} alt="preview" fill sizes="200px" className="object-contain" /> : <span className="text-sm text-theme-muted">Click to upload</span>}
               <input type="file" accept="image/*" onChange={handleImg} className="hidden" />
             </label>
           </div>
@@ -74,7 +75,7 @@ function SubCatModal({ defaultValues, onClose }) {
                           const next = e.target.checked ? [...(field.value||[]), cat._id] : (field.value||[]).filter((id)=>id!==cat._id);
                           field.onChange(next);
                         }} className="accent-[var(--color-primary)]" />
-                        {cat.image && <img src={cat.image} alt="" className="h-5 w-5 rounded object-cover" />}
+                        {cat.image && <SafeImage src={cat.image} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" />}
                         {cat.name}
                       </label>
                     );
@@ -124,7 +125,7 @@ export default function AdminSubCategoryPage() {
             )}
             {subCategories.map((sub) => (
               <tr key={sub._id}>
-                <td>{sub.image && <img src={sub.image} alt={sub.name} className="h-10 w-10 rounded-lg object-cover" />}</td>
+                <td>{sub.image && <SafeImage src={sub.image} alt={sub.name} width={40} height={40} className="h-10 w-10 rounded-lg object-cover" />}</td>
                 <td className="font-medium">{sub.name}</td>
                 <td>
                   <div className="flex flex-wrap gap-1">

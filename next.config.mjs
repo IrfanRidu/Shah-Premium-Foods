@@ -1,9 +1,37 @@
+// Section 9 (Performance) — "Bundle analyzer". @next/bundle-analyzer is
+// listed in package.json's devDependencies; run `npm install` once, then
+// `npm run analyze` to build with it and open the visual bundle report.
+// Wrapped so a normal `next dev`/`next build` (ANALYZE unset) never even
+// evaluates the analyzer's own webpack plugin — no cost when not in use.
+import bundleAnalyzer from "@next/bundle-analyzer";
+const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "true" });
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Security audit (OWASP A05 — Security Misconfiguration): don't advertise
   // "X-Powered-By: Next.js" on every response. Free, minor-but-real
   // reconnaissance info for an attacker; Next.js sends it by default.
   poweredByHeader: false,
+
+  // Section 9 (Performance) — "Compression Gzip Brotli". Explicit rather
+  // than relying on the implicit default (`compress` already defaults to
+  // true in Next.js, but leaving it implicit reads as "nobody decided
+  // this"). What this actually does depends on how the app is run:
+  //   - `next start` (self-hosted Node): this flag makes Next.js gzip
+  //     responses itself via its built-in compression middleware.
+  //   - Vercel (see VERCEL_DEPLOYMENT.md, this app's documented deploy
+  //     target): the edge network compresses every response with Brotli
+  //     automatically, regardless of this setting — this flag is a no-op
+  //     there but is kept for correctness if the app is ever self-hosted.
+  //   - Self-hosting behind nginx/Caddy: a reverse proxy typically also
+  //     compresses; having both Next's own gzip AND a proxy's gzip/brotli
+  //     is safe (proxies negotiate Content-Encoding correctly, they don't
+  //     double-compress), unlike hand-rolling compression inside API
+  //     responses in apiHandler.js, which was deliberately NOT done (see
+  //     that file's own comment) because a mismatched Content-Encoding
+  //     from double-compressing would silently break responses in a way
+  //     this sandbox can't test live.
+  compress: true,
 
   // Tell Next.js NOT to bundle these server-only packages — let Node.js
   // load them directly from node_modules at runtime. This avoids bundling
@@ -32,6 +60,21 @@ const nextConfig = {
       { protocol: "https", hostname: "**.cloudinary.com" },
       { protocol: "https", hostname: "placehold.co" },
     ],
+    // Section 9 (Performance) — "Image Optimization". AVIF is tried first
+    // (smallest file size on browsers that support it), falling back to
+    // WebP, then the original format — next/image negotiates this
+    // automatically per-request via the browser's Accept header. Every
+    // <img> in the app was converted to next/image as part of this same
+    // pass (see components/ProductCard.jsx, Carousel.jsx, etc.).
+    formats: ["image/avif", "image/webp"],
+    // How long an optimized image variant is cached (server-side and at
+    // any CDN in front of it) before Next.js will re-check/re-generate it.
+    // Product/category/banner images are admin-uploaded and change
+    // infrequently; 60s (Next's own default) means editors see a freshly
+    // re-uploaded image quickly, so this is widened to 1 hour rather than
+    // set to something very long — a deliberate middle ground, not the
+    // most aggressive value possible.
+    minimumCacheTTL: 3600,
   },
 
   env: {
@@ -132,4 +175,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

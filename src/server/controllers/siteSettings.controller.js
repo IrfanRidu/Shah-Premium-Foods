@@ -1,13 +1,31 @@
 import SiteSettingsModel from "../models/siteSettings.model.js";
+import cache from "../../lib/cache.js";
+
+// Section 9 (Performance): the settings document is read on nearly every
+// single page load sitewide (GlobalProvider fetches it via this
+// controller; layout.jsx's generateMetadata/RootLayout ALSO read it
+// directly via Mongoose for <head> tags — see that file, now wired to the
+// same cache key below so both paths invalidate together). One shared key
+// namespace ("settings:") for the whole document, since almost every
+// mutation endpoint in this file touches the same single "main" doc and
+// there's no reliable way to know from here which specific nested field an
+// update changed — invalidating the whole namespace on any settings write
+// is simpler and safer than trying to be more surgical about it.
+const SETTINGS_CACHE_KEY = "settings:main";
+const FAQ_CACHE_KEY = "settings:faq";
 
 // Get settings (creates default doc if none exists) - public
 export const getSiteSettingsController = async (req, res) => {
   try {
-    let settings = await SiteSettingsModel.findOne({ key: "main" });
-
-    if (!settings) {
-      settings = await new SiteSettingsModel({ key: "main" }).save();
-    }
+    const settings = await cache.getOrSet(
+      SETTINGS_CACHE_KEY,
+      async () => {
+        let s = await SiteSettingsModel.findOne({ key: "main" });
+        if (!s) s = await new SiteSettingsModel({ key: "main" }).save();
+        return s;
+      },
+      cache.TTL.LONG
+    );
 
     return res.json({
       message: "Site settings fetched successfully",
@@ -62,6 +80,7 @@ export const updateSiteSettingsController = async (req, res) => {
     });
 
     const saved = await settings.save();
+    await cache.invalidate("settings:");
 
     return res.json({
       message: "Site settings updated successfully",
@@ -99,6 +118,7 @@ export const addPaymentMethodController = async (req, res) => {
 
     settings.paymentMethods.push({ name, image });
     const saved = await settings.save();
+    await cache.invalidate("settings:");
 
     return res.status(201).json({
       message: "Payment method added successfully",
@@ -132,6 +152,7 @@ export const deletePaymentMethodController = async (req, res) => {
     );
 
     const saved = await settings.save();
+    await cache.invalidate("settings:");
 
     return res.json({
       message: "Payment method removed successfully",
@@ -161,6 +182,7 @@ export const addBannerController = async (req, res) => {
 
     settings.banners.push({ image, mobileImage, link, title, order });
     const saved = await settings.save();
+    await cache.invalidate("settings:");
 
     return res.status(201).json({
       message: "Banner added successfully",
@@ -208,6 +230,7 @@ export const deleteBannerController = async (req, res) => {
     );
 
     const saved = await settings.save();
+    await cache.invalidate("settings:");
 
     return res.json({
       message: "Banner removed successfully",
@@ -235,6 +258,7 @@ export const updateFaqController = async (req, res) => {
     if (!settings) settings = new SiteSettingsModel({ key: "main" });
     settings.faq = faq;
     const saved = await settings.save();
+    await cache.invalidate("settings:");
     return res.json({ message: "FAQ updated", error: false, success: true, data: saved.faq });
   } catch (error) {
     return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });
@@ -244,8 +268,14 @@ export const updateFaqController = async (req, res) => {
 // PUBLIC: Get FAQ items
 export const getFaqController = async (req, res) => {
   try {
-    const settings = await SiteSettingsModel.findOne({ key: "main" });
-    const faq = settings?.faq || [];
+    const faq = await cache.getOrSet(
+      FAQ_CACHE_KEY,
+      async () => {
+        const settings = await SiteSettingsModel.findOne({ key: "main" });
+        return settings?.faq || [];
+      },
+      cache.TTL.LONG
+    );
     return res.json({ message: "FAQ fetched", error: false, success: true, data: faq });
   } catch (error) {
     return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });

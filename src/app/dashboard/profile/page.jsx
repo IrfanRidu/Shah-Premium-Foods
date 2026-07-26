@@ -7,6 +7,7 @@ import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { setUserDetails, updatedAvatar } from "@/store/userSlice";
 import { axiosToastError } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 export default function ProfilePage() {
@@ -100,9 +101,9 @@ export default function ProfilePage() {
             onClick={() => !uploading && fileInputRef.current?.click()}
             title="Click to change profile picture"
           >
-            <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-theme ring-2 ring-[var(--color-primary)]/20">
+            <div className="relative h-24 w-24 rounded-full overflow-hidden border-2 border-theme ring-2 ring-[var(--color-primary)]/20">
               {avatarSrc
-                ? <img src={avatarSrc} alt={user.name} className="w-full h-full object-cover" />
+                ? <SafeImage src={avatarSrc} alt={user.name} fill sizes="96px" className="object-cover" />
                 : <div className="w-full h-full bg-[var(--color-border)] flex items-center justify-center text-3xl font-bold text-theme-muted">
                     {user.name?.[0]?.toUpperCase() || "?"}
                   </div>

@@ -8,6 +8,7 @@ import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { displayPrice, priceWithDiscount, axiosToastError } from "@/lib/utils";
 import ConfirmBox from "@/components/ConfirmBox";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 export default function AdminProductPage() {
@@ -76,7 +77,7 @@ export default function AdminProductPage() {
               {products.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-theme-muted">No products found</td></tr>}
               {products.map((p) => (
                 <tr key={p._id}>
-                  <td>{p.image?.[0] && <img src={p.image[0]} alt={p.name} className="h-10 w-10 rounded-lg object-cover" />}</td>
+                  <td>{p.image?.[0] && <SafeImage src={p.image[0]} alt={p.name} width={40} height={40} className="h-10 w-10 rounded-lg object-cover" />}</td>
                   <td className="font-medium max-w-[200px]"><p className="truncate">{p.name}</p></td>
                   <td><span className="font-mono text-xs text-theme-muted">{p.sku || "—"}</span></td>
                   <td>

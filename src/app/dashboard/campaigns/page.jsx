@@ -9,6 +9,7 @@ import { useGlobalContext } from "@/providers/GlobalProvider";
 import ConfirmBox from "@/components/ConfirmBox";
 import DateTimePicker from "@/components/DateTimePicker";
 import ProductDropdown from "@/components/ProductDropdown";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const STATUS_COLORS = { active:"bg-green-100 text-green-700", upcoming:"bg-blue-100 text-blue-700", expired:"bg-gray-100 text-gray-500" };
@@ -169,7 +170,7 @@ function CampaignFormModal({ defaultValues, allProducts, productsLoading, produc
               )}
               {form.badgeStyle === "image" && (
                 <div className="flex items-center gap-3">
-                  {form.badgeImage && <img src={form.badgeImage} alt="" className="h-10 w-20 rounded-lg object-cover border border-theme"/>}
+                  {form.badgeImage && <SafeImage src={form.badgeImage} alt="" width={80} height={40} className="h-10 w-20 rounded-lg object-cover border border-theme"/>}
                   <label className="btn-outline px-4 py-2 text-sm cursor-pointer">
                     {uploadingBadge ? "Uploading…" : "Upload Badge Image"}
                     <input type="file" accept="image/*" onChange={handleBadgeImageUpload} className="hidden" disabled={uploadingBadge}/>
@@ -232,7 +233,7 @@ function CampaignFormModal({ defaultValues, allProducts, productsLoading, produc
                 const p = item.productId;
                 return (
                   <div key={i} className="flex items-center gap-2 bg-[var(--color-bg)] border border-theme rounded-xl px-3 py-2">
-                    {(p?.image?.[0]) && <img src={p.image[0]} alt="" className="h-9 w-9 rounded object-cover shrink-0"/>}
+                    {(p?.image?.[0]) && <SafeImage src={p.image[0]} alt="" width={36} height={36} className="h-9 w-9 rounded object-cover shrink-0"/>}
                     <span className="flex-1 text-sm truncate">{p?.name || "Product"}</span>
                     <div className="flex items-center gap-1 shrink-0">
                       <input type="number" min="0" max="100" value={item.specialDiscount}
@@ -362,7 +363,7 @@ export default function AdminCampaignsPage() {
                       const p = item.productId;
                       return p ? (
                         <div key={i} className="shrink-0 flex items-center gap-1 bg-[var(--color-bg)] border border-theme rounded-lg px-2 py-1 text-xs">
-                          {p.image?.[0] && <img src={p.image[0]} alt="" className="h-6 w-6 rounded object-cover"/>}
+                          {p.image?.[0] && <SafeImage src={p.image[0]} alt="" width={24} height={24} className="h-6 w-6 rounded object-cover"/>}
                           <span className="truncate max-w-[80px]">{p.name}</span>
                           <span className="text-red-500 font-bold">-{item.specialDiscount}%</span>
                         </div>

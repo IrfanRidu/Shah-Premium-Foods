@@ -4,6 +4,7 @@ import { FaFileAlt, FaCamera, FaPaperPlane, FaClock } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const STATUS_COLOR = { Pending:"bg-yellow-100 text-yellow-700", Processing:"bg-blue-100 text-blue-700", Fulfilled:"bg-green-100 text-green-700", Rejected:"bg-red-100 text-red-700" };
@@ -102,9 +103,9 @@ export default function SubmitListPage() {
         ) : (
           <div>
             <label className="block text-sm font-medium mb-1.5">Photo of Your List</label>
-            <label className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden bg-[var(--color-bg)]">
+            <label className="relative flex flex-col items-center justify-center h-48 border-2 border-dashed border-theme rounded-xl cursor-pointer hover:border-theme-primary transition-colors overflow-hidden bg-[var(--color-bg)]">
               {imgPreview
-                ? <img src={imgPreview} alt="preview" className="h-full w-full object-contain" />
+                ? <SafeImage src={imgPreview} alt="preview" fill sizes="300px" className="object-contain" />
                 : <span className="text-sm text-theme-muted flex flex-col items-center gap-2"><FaCamera size={24}/> Tap to choose or take a photo</span>
               }
               <input type="file" accept="image/*" capture="environment" onChange={handleImagePick} className="hidden" />
@@ -146,7 +147,7 @@ export default function SubmitListPage() {
             {history.map((h) => (
               <div key={h._id} className="bg-[var(--color-surface)] border border-theme rounded-xl p-3 flex items-center gap-3">
                 {h.type === "image"
-                  ? <img src={h.imageUrl} alt="" className="h-12 w-12 rounded-lg object-cover shrink-0" />
+                  ? <SafeImage src={h.imageUrl} alt="" width={48} height={48} className="h-12 w-12 rounded-lg object-cover shrink-0" />
                   : <div className="h-12 w-12 rounded-lg bg-[var(--color-bg)] flex items-center justify-center shrink-0"><FaFileAlt className="text-theme-muted"/></div>
                 }
                 <div className="flex-1 min-w-0">

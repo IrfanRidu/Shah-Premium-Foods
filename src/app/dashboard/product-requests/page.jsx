@@ -4,6 +4,7 @@ import { FaFileAlt, FaDownload, FaPhone, FaFilePdf } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError } from "@/lib/utils";
+import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 
 const STATUSES = ["All", "Pending", "Processing", "Fulfilled", "Rejected"];
@@ -113,7 +114,7 @@ export default function ProductRequestsPage() {
             <div key={r._id} className="bg-[var(--color-surface)] border border-theme rounded-2xl p-4 flex items-center gap-3 flex-wrap">
               <button onClick={() => setViewing(r)} className="shrink-0">
                 {r.type === "image"
-                  ? <img src={r.imageUrl} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                  ? <SafeImage src={r.imageUrl} alt="" width={56} height={56} className="h-14 w-14 rounded-lg object-cover" />
                   : <div className="h-14 w-14 rounded-lg bg-[var(--color-bg)] border border-theme flex items-center justify-center"><FaFileAlt className="text-theme-muted" size={18}/></div>
                 }
               </button>
@@ -144,7 +145,14 @@ export default function ProductRequestsPage() {
             {viewing.type === "text" ? (
               <pre className="whitespace-pre-wrap text-sm bg-[var(--color-bg)] border border-theme rounded-xl p-4 max-h-80 overflow-y-auto font-sans">{viewing.textContent}</pre>
             ) : (
-              <img src={viewing.imageUrl} alt="" className="w-full rounded-xl max-h-96 object-contain bg-[var(--color-bg)]" />
+              <SafeImage
+                src={viewing.imageUrl}
+                alt=""
+                width={800}
+                height={800}
+                sizes="(max-width: 640px) 100vw, 640px"
+                className="w-full h-auto rounded-xl max-h-96 object-contain bg-[var(--color-bg)]"
+              />
             )}
             {viewing.customerNote && <p className="text-sm mt-3"><strong>Customer note:</strong> {viewing.customerNote}</p>}
             <div className="flex gap-3 mt-5">

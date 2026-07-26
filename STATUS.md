@@ -1,5 +1,219 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 16 — Section 9 (Performance) + Section 10 (SEO) implementation pass
+
+Scope: implement the full Section 9 (Performance) and Section 10 (SEO)
+checklists against the app as it stood after Batch 15, end to end. This
+was a large, multi-part pass (touches roughly 50 files); this entry
+groups it by concern rather than narrating file-by-file.
+
+**Sandbox constraints, stated up front**: same as every prior batch — no
+network access (no `npm install`), so nothing here was verified with an
+actual `next build`, `next dev`, a real browser, or a live Lighthouse run.
+Verification in this batch was: an `esbuild` transform pass for
+syntax (found a usable copy bundled with a globally-installed `tsx`
+package already present in the sandbox), a custom regex-based import/
+export consistency checker, targeted behavioral unit tests for the two
+pieces of genuinely new stateful/parsing logic (the cache module's TTL+
+eviction behavior, and the RSS route's XML escaping), and careful manual
+review. Both static-analysis scripts were themselves sanity-tested against
+deliberately broken fixtures before being trusted, after the first draft
+of the syntax checker turned out to silently report "0 errors"
+unconditionally (wrong esbuild CLI flag form, wrong error-text grep) — see
+inline comments in the tooling for the full account. Anyone picking this
+up with real `npm install`/browser access should still run a real
+Lighthouse pass and a real build before deploying; that's the one thing
+this pass genuinely could not do.
+
+### Section 9 — Performance
+- **Images**: every `<img>` in the codebase (48 across ~35 files, storefront
+  and dashboard) converted to `next/image`, via a new shared
+  `components/SafeImage.jsx` wrapper rather than ad hoc per file. That
+  wrapper exists because next/image is stricter than a bare `<img>` in two
+  ways this app's data hits constantly: (1) product/category/banner images
+  are optional in the data model, and next/image can throw on a missing
+  `src` where a plain `<img>` just silently renders nothing — falls back
+  to a new `public/placeholder-image.svg` (public/ was completely empty
+  before this); (2) the admin dashboard's upload forms preview a picked
+  file via `URL.createObjectURL()` before it's uploaded — a `blob:` URL,
+  which next/image's optimizer can't process — handled via `unoptimized`,
+  as is the SVG placeholder itself (Next disallows SVG through the
+  optimizer by default, `dangerouslyAllowSVG` deliberately left off rather
+  than weakened sitewide for one static asset).
+- **Fonts**: migrated Inter + Playfair Display from manual Google Fonts
+  `<link>` tags (plus a second, fully duplicate `@import` in globals.css —
+  the same two fonts were being fetched from Google twice over on every
+  visit) to `next/font/google` (`lib/fonts.js`). Self-hosted, non-blocking,
+  automatic `font-display: swap`. Let the CSP in `middleware.js` narrow
+  `font-src`/`style-src` to `'self'` as a direct consequence — nothing
+  external is fetched for fonts anymore.
+- **Dynamic imports / code splitting**: all 8 `dashboard/analytics` tabs
+  (6 of which import `recharts`) were statically imported into one page —
+  converted to `next/dynamic` with a shared loading skeleton, by far the
+  single biggest bundle-size win found. `InvoiceModal` dynamically
+  imported (`ssr:false`) at its two usage sites. `jspdf`/`jsbarcode` were
+  already dynamically imported inline by an earlier batch — confirmed,
+  left alone. Deliberately did NOT dynamic-import `BarcodeScanner`: it's
+  39 lines, zero heavy dependencies, and always visible on its page —
+  would add a loading waterfall for no bundle-size benefit.
+- **Memoization**: `ProductCard` and `CampaignSection`/`CampaignProductCard`
+  wrapped in `React.memo` (list items re-rendered on every unrelated
+  parent update otherwise). New `store/campaignSelectors.js` — a
+  `createSelector`-memoized `productId → campaign` Map, replacing an
+  O(campaigns × their products) `.find()` scan that both `ProductCard`
+  and the product page used to run on every single render.
+  `GlobalProvider`'s context value (previously a fresh object literal
+  built on every render, re-rendering every single `useGlobalContext()`
+  consumer app-wide whenever GlobalProvider itself re-rendered for any
+  reason) is now wrapped in `useMemo` — confirmed first that all 11
+  grouped functions were already individually `useCallback`-wrapped,
+  since memoizing the wrapper object only actually helps if its members
+  are themselves stable.
+- **Server Components / Streaming / ISR** (the architecturally significant
+  part): `product/[product]`, `category/[slug]`, and
+  `[category]/[subCategory]` converted from fully client-rendered pages
+  (fetch in a `useEffect` after mount, loading skeleton, soft-404s) into
+  async Server Components with `generateMetadata`, direct Mongoose reads
+  (new `server/data/*.js` — same pattern `layout.jsx` already used for
+  site settings, bypassing the Express-style controllers on purpose to
+  avoid a pointless self-HTTP-hop), real `notFound()` 404s, and
+  `revalidate` (60s product / 300s category+subcategory). Genuinely
+  interactive/personalized pieces (gallery, add-to-cart/buy-now,
+  currency+campaign-aware pricing, suggestions) extracted into small
+  client components fed by props instead of doing their own fetch.
+  `loading.js` added for all three routes (Suspense streaming boundaries)
+  plus a global `not-found.js`.
+  **Deliberately NOT attempted**: converting the homepage, cart, checkout,
+  or dashboard to Server Components. This app's storefront is built
+  around Redux (GlobalProvider fetches categories/settings/campaigns/
+  coupons/rates on mount; the homepage separately fetches five more
+  analytics-driven product rows), and a from-scratch rewrite of that
+  working, 15-batches-hardened system — untestable live in this sandbox —
+  is not a responsible move for a Performance/SEO pass. The three routes
+  above were chosen because they're what search/social traffic actually
+  lands on and their core identity (what a product/category *is*) doesn't
+  depend on cart/currency/campaign state the way their *displayed price*
+  does.
+- **Route cache / API cache / "Redis-ready"**: new `lib/cache.js` — an
+  in-process TTL cache with a Redis-shaped async interface
+  (`get/set/del/getOrSet/invalidate`), explicitly NOT changing
+  `apiHandler.js`'s HTTP `Cache-Control` behavior (a previous batch
+  deliberately left that alone for reasons that still apply — see that
+  file's own comment). Wired into `category`/`subCategory`/`siteSettings`/
+  `campaign` controllers' public reads (with invalidation on every
+  mutation endpoint) and into the new product/category/subcategory
+  Server Component data fetchers. Added a MAX_ENTRIES=500 FIFO eviction
+  safety net before using it for per-product keys specifically (the
+  category/settings/campaign caches each have exactly one key; products
+  don't). Behaviorally tested, not just syntax-checked.
+- **Request de-duplication**: `lib/axios.js`'s exported `Axios` is now a
+  thin wrapper, not the raw instance — for an explicit allowlist of
+  known-safe read endpoints (this app sends several conceptually-read
+  operations as POST-with-body, so a naive "GET only" rule would have
+  missed most of the actual traffic), concurrent identical in-flight
+  requests share one promise instead of firing twice. All existing
+  interceptor/retry/401-refresh logic on the underlying instance is
+  untouched.
+- **Compression / preconnect / render-blocking**: `next.config.mjs` now
+  explicitly sets `compress: true` and `images.formats:
+  ['image/avif','image/webp']`; added `@next/bundle-analyzer` (guarded
+  behind `ANALYZE=true`, `npm run analyze`). Added an explicit
+  `<link rel="preconnect">` to Cloudinary in the root layout (real,
+  universal, per-page dependency); removed the now-unnecessary Google
+  Fonts preconnect links. The Google Analytics snippet moved from a raw
+  `<script>` tag to `next/script` with `strategy="afterInteractive"`.
+- **Edge Runtime**: not extended beyond where it already applies
+  (middleware, which runs on Edge as a Next.js requirement, not a choice).
+  Nearly the entire API surface depends on Mongoose/bcryptjs/
+  jsonwebtoken/Cloudinary/Stripe/Resend/multer — all already declared
+  Node-only via `serverComponentsExternalPackages` — so forcing
+  `runtime:'edge'` anywhere else would break, not help. Stated plainly
+  rather than papered over.
+
+### Section 10 — SEO
+- **Metadata API / Open Graph / Twitter Cards**: root layout gained
+  `metadataBase`, a `title` template (`'%s | SiteName'`, so any child page
+  setting its own title gets composed automatically instead of every page
+  re-fetching settings to string-concat it), and full `twitter{}`
+  metadata (previously absent entirely, sitewide). The product/category/
+  subcategory pages each now export real `generateMetadata` built from
+  the actual item — previously every product page shared the exact same
+  sitewide default title/description, the single biggest gap this pass
+  found.
+- **JSON-LD / Structured Data**: new sitewide, always-on Organization +
+  WebSite (+ `SearchAction`, pointed at the real `/search?q=` route)
+  JSON-LD in the root layout, additive alongside (not replacing) the
+  admin's existing optional custom JSON-LD field. New Product +
+  BreadcrumbList JSON-LD on the product page; BreadcrumbList + ItemList on
+  category/subcategory pages.
+- **Breadcrumbs**: added a visible breadcrumb UI to the product page
+  (previously had none at all — category/subcategory pages already had
+  one).
+- **Robots / Sitemap / RSS**: sitemap gained subcategory URLs (that route
+  existed, was crawlable, and had simply never been listed — an outright
+  gap, not a design choice); robots.txt's default fallback gained
+  `Disallow: /api/`, `/dashboard/` and a `Sitemap:` line (admin's own
+  saved override still takes full, unchanged precedence). Both switched
+  from `force-dynamic` to `revalidate=3600` (ISR) — Route Handlers support
+  the same segment config as pages, no need to recompute either from the
+  database on literally every single crawler hit. New `rss.xml` route —
+  latest-50-products feed, `application/rss+xml`, XML-escaped (behaviorally
+  tested against adversarial product names containing `&`/`<`/`>`/quotes).
+- **Canonical / noindex**: per-page `alternates.canonical` on all three
+  rewritten routes. Every `page.jsx` in this app is a Client Component
+  (checked across the whole tree), which can't export its own `metadata` —
+  rather than wrap ~10 routes in new pass-through `layout.js` files,
+  `middleware.js` now sets `X-Robots-Tag: noindex, nofollow` for
+  cart/checkout/login/register/forgot-password/reset-password/verify-otp/
+  success/cancel/dashboard, which is the header-level equivalent of the
+  same meta tag and needed only one file.
+- **404 handling**: product/category/subcategory pages now call real
+  `notFound()` instead of silently rendering an empty/placeholder state at
+  200 OK. Worth calling out specifically for `[category]/[subCategory]`:
+  it's a ROOT-level two-segment dynamic route (matches any `/x/y` not
+  claimed by a more specific route), so this was a real, if unglamorous,
+  fix — every malformed or guessed 2-segment URL used to be a soft-404.
+  The new data fetcher also checks that the subcategory actually belongs
+  to the category (the old lookup never did), since a real-but-unrelated
+  ID pair is exactly the kind of case proper 404 handling needs to catch.
+
+### Mistakes made and caught along the way (stated plainly, not glossed over)
+- The syntax-checking tool's first draft silently reported zero errors
+  unconditionally, on any input — a wrong esbuild CLI flag form combined
+  with grepping for the wrong error-text pattern. Caught by deliberately
+  feeding it a broken file before trusting it further; both scripts in
+  this batch were re-validated against fixtures after every meaningful
+  change to their own logic, not just written once and assumed correct.
+- The import/export checker's first version didn't recognize
+  `export const { a, b } = someSlice.actions` — the destructuring pattern
+  every single Redux slice in this codebase actually uses — and flagged
+  two real, correct imports as broken. Investigated before assuming
+  either the app or the tool was at fault; it was the tool. Fixed and
+  re-validated.
+- Introduced a real naming collision while wiring `lib/cache.js` into
+  `layout.jsx` (`import { cache } from "react"` vs. a second `import
+  cache from "@/lib/cache"`) — caught by manual review before running the
+  checker on it, fixed by renaming the import.
+- First draft of `ProductPurchasePanel.jsx` dynamically imported
+  `axios`/`api` inside a click handler for no real reason — inconsistent
+  with how the rest of the app uses those modules, no bundle-size benefit
+  for a lightweight, always-needed pair. Reverted to static imports.
+- Two literal typos (`#` instead of `//` on comment-continuation lines in
+  `robots.txt/route.js`) were genuine syntax errors, caught immediately by
+  the syntax checker and fixed.
+- First draft of the RSS feed hardcoded "Shah Premium Foods" as the site
+  name instead of reading it from settings like every other piece of
+  metadata in this pass — inconsistent, fixed to read the same cached
+  settings key `layout.jsx`/`siteSettings.controller.js` already use.
+
+Verified: full project (210 `.js`/`.jsx` files + `globals.css`), 0 syntax
+errors, 0 import/export problems, across the whole `src/` tree, not just
+the files touched in this batch. As stated above, no live build/Lighthouse
+run was possible in this sandbox — that remains the one thing to actually
+run before deploying.
+
+---
+
 ## Batch 15 — CRITICAL REGRESSION FIX: reverted `mongoose.set("sanitizeFilter", true)`
 
 Bug report: analytics (all 5 tabs), checkout, and the storefront's own
