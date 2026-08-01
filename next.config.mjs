@@ -6,6 +6,13 @@
 import bundleAnalyzer from "@next/bundle-analyzer";
 const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "true" });
 
+// Section 12 (Monitoring) — Sentry. See sentry.server.config.js for the
+// fuller explanation of the "prepared but inert without a real DSN"
+// approach and the honest version-drift caveat (this sandbox has no
+// network access to confirm this against the exact @sentry/nextjs version
+// that ends up installed).
+import { withSentryConfig } from "@sentry/nextjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Security audit (OWASP A05 — Security Misconfiguration): don't advertise
@@ -175,4 +182,28 @@ const nextConfig = {
   },
 };
 
-export default withBundleAnalyzer(nextConfig);
+// Section 12 (Monitoring): Sentry's build-time options (source map
+// upload, release tagging) — every value here is env-var-driven and
+// undefined/falsy by default, so this whole block is a safe no-op until
+// the user sets up a real Sentry project and adds these to their
+// environment (see .env.example). `silent: true` specifically avoids
+// noisy Sentry CLI output on every build for anyone who hasn't configured
+// it yet.
+const sentryBuildOptions = {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: true,
+  widenClientFileUpload: true,
+  // This app's own X-Powered-By removal (see poweredByHeader above) and
+  // general "don't advertise implementation details" posture — matches
+  // Sentry's own recommended hardening default.
+  hideSourceMaps: true,
+  disableLogger: true,
+};
+
+// Sentry wraps OUTERMOST, after bundle analyzer — its webpack plugin
+// needs visibility into the FINAL webpack config, including whatever
+// other plugins (like the bundle analyzer above) already changed, to
+// correctly instrument it for source maps and automatic error tracking.
+export default withSentryConfig(withBundleAnalyzer(nextConfig), sentryBuildOptions);

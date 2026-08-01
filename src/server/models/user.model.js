@@ -97,6 +97,24 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Section 13 (Admin Panel Security) — email-OTP 2FA. Same shape as
+    // the forgot-password OTP fields above on purpose (String + Date
+    // expiry, cleared after use) — this codebase already has this exact
+    // pattern proven twice (email verification at signup, forgot
+    // password); a third field pair following the same shape is the
+    // lowest-risk way to add it, not a new mechanism to reason about.
+    twoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    login_otp: {
+      type: String,
+      default: null,
+    },
+    login_otp_expiry: {
+      type: Date,
+      default: null,
+    },
     role: {
       type: String,
       default: "USER",

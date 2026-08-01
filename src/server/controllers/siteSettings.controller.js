@@ -1,5 +1,6 @@
 import SiteSettingsModel from "../models/siteSettings.model.js";
 import cache from "../../lib/cache.js";
+import { getClientIpFromPlainHeaders } from "../../lib/security.js";
 
 // Section 9 (Performance): the settings document is read on nearly every
 // single page load sitewide (GlobalProvider fetches it via this
@@ -40,6 +41,24 @@ export const getSiteSettingsController = async (req, res) => {
       success: false,
     });
   }
+};
+
+// Section 13 (Admin Panel Security) — deliberately NOT part of the cached
+// settings read above: that response is shared across every caller within
+// its TTL window (see lib/cache.js), so embedding "your current IP" in it
+// would show one admin ANOTHER admin's IP whenever the cache happened to
+// still be warm from a different request. This is its own tiny, always-
+// fresh endpoint specifically so the IP-whitelist admin UI
+// (dashboard/site-settings) can reliably show each admin their own actual
+// current IP — critical for adding it correctly before enabling
+// enforcement, so nobody locks themselves out.
+export const getMyIpController = async (req, res) => {
+  return res.json({
+    message: "IP detected",
+    error: false,
+    success: true,
+    data: { ip: getClientIpFromPlainHeaders(req.headers) },
+  });
 };
 
 // Update settings (admin) - partial update, deep-merge style

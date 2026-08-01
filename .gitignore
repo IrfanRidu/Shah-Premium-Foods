@@ -30,6 +30,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Section 11 (Logging): winston-daily-rotate-file's output when
+# self-hosted (see lib/logger.js — this directory is never written to on
+# Vercel, only for a traditional `next start` deployment). Local-machine
+# runtime output, not source — never belongs in the repo.
+/logs
+
 # env files — NEVER commit real secrets. .env.example is the only env file
 # meant to be tracked; it contains no real values, only placeholders.
 .env

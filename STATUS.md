@@ -1,5 +1,443 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 19 — Section 13 (Admin Panel Security) + 14 (Payment Security) + 15 (Next.js Best Practices)
+
+Scope: the third and final requested section group, on top of Batches
+16-18. Same sandbox constraints as every batch before this one — no
+network access, nothing here was ever actually run; verified with the
+same static tooling (esbuild transform + import/export checker) built in
+Batch 16, plus careful manual review, which is what caught most of the
+real issues in this batch specifically (see below).
+
+**Worth recording plainly**: this batch picked up mid-task after a real
+context discontinuity — a "continue" arrived with no visible memory of
+the work covered by this entry's own Section 14 half, which turned out
+to already be complete, or of Batch 18 (a separate real-runtime bug-fix
+pass after the user ran `npm run dev` directly, immediately below this
+entry). Resolved by not trusting stale planning notes and checking the
+actual filesystem directly before touching anything — full account
+preserved in ROADMAP.md's own "CONTEXT DISCONTINUITY" section for anyone
+who wants the blow-by-blow.
+
+### Section 14 — Payment Security (Stripe)
+Found already fully and correctly implemented once the filesystem was
+actually checked (see the discontinuity note above) — not redone, just
+verified: `ProcessedWebhookEvent` model (unique index on `eventId`, 30-day
+TTL), explicit `WEBHOOK_TOLERANCE_SECONDS=300` passed to `constructEvent`
+(honestly documented as making an already-existing Stripe SDK default
+explicit rather than claiming to close a hole that wasn't open), an
+atomic upsert-based idempotency claim (Mongo error 11000 = already
+handled, anything else = real failure returned as 500 so Stripe retries),
+and a `payment_status !== "paid"` gate before order fulfillment.
+
+### Section 13 — Admin Panel Security
+- **Admin session timeout**: ADMIN/SUPERADMIN accounts get shorter token
+  lifetimes (10m access / 4h refresh vs. 15m / 7d default,
+  env-overridable). Caught my own ordering bug before it shipped: role
+  needs fetching once, before both the session record's expiry AND the
+  actual token's expiry are computed, or the two disagree (a session
+  record claiming days more validity than the JWT itself, the thing
+  actually checked on every request, would actually have).
+- **Idle logout**: new `IdleLogoutProvider.jsx`, wrapping
+  `dashboard/layout.jsx` (scopes it to `/dashboard/*` for free via the
+  route-segment layout system — no pathname-checking needed). 20-minute
+  default, 60-second "Still there?" warning, reuses the exact logout
+  sequence `UserMenu.jsx` already used rather than a parallel
+  implementation. Deliberately requires an explicit "Stay logged in"
+  click once the warning shows (not any incidental activity) — reasoned
+  through in the component's own comment: this exists specifically to
+  protect an unattended screen.
+- **IP whitelist**: admin-configurable via Site Settings, not env/
+  redeploy-based. Real architectural constraint worked through carefully:
+  `middleware.js` runs on Edge (established elsewhere in this project) and
+  can't reach Mongoose, so this is enforced in `permission.js` instead —
+  which already does a fresh per-request role lookup — scoped to
+  ADMIN/SUPERADMIN accounts only (storefront/customer traffic completely
+  untouched). New `security{ipWhitelistEnabled, ipWhitelist}` field on
+  `SiteSettingsModel`, read through the same TTL cache every other
+  settings read already uses. New deliberately-UNCACHED `GET /api/
+  settings/my-ip` endpoint so the admin UI can show each admin their own
+  real current IP (the cached settings response is shared across callers
+  within its TTL window — embedding "your IP" there would show one admin
+  a DIFFERENT admin's IP). Full UI in `dashboard/site-settings` with two
+  safety guards: refuses to save "enabled" with an empty list (locks out
+  every admin at once), and requires explicit confirmation if enabling
+  without the SAVING admin's own current IP listed.
+- **Email-OTP 2FA**: same OTP shape the app already uses twice
+  (email-verification-at-signup, forgot-password) — a proven pattern, not
+  a new mechanism. Refactored `loginUserController`: extracted a shared
+  `completeLogin()` helper (token issuance, cookies, response) called
+  either directly (2FA off) or from new `verifyLoginOtpController` (2FA
+  on, after the emailed code is confirmed). Caught two real issues via
+  manual review: (1) `recordSuccessfulLogin` was being called twice for
+  the non-2FA path post-refactor — harmless (idempotent Map deletion) but
+  fixed properly by reasoning through where it semantically belongs
+  (password-verification time, regardless of 2FA pending); (2) the new
+  OTP-verification endpoint initially had no rate limit of its own — a
+  6-digit code is only ~1M possibilities, brute-forceable within its
+  10-minute window without one — added a limit matching the existing
+  forgot-password-OTP endpoint's exactly. While in this area: found and
+  fixed `getUserDetailsController`/`getAllUsersController` not explicitly
+  excluding the OTP fields from their responses (always `null` by the
+  time any authenticated request can succeed, so not an active leak, but
+  worth being explicit rather than relying on that timing implicitly).
+  Full toggle UI in `dashboard/profile`.
+- **Audit log persistence + dashboard viewer**: new `AuditLogModel`
+  (TTL at 365 days, matching the Winston audit logger's own retention
+  from Batch 17 exactly). `logAuditEvent()` now dual-writes — Winston
+  (unchanged) + MongoDB, the latter bounded by the existing `withTimeout`
+  helper and awaited rather than fire-and-forget (Vercel serverless
+  functions can be frozen the instant a response is sent, so a detached
+  background write has no guarantee of completing) — a persistence
+  failure is caught and logged but never blocks or fails the actual
+  request. New paginated/filterable `dashboard/audit-log` viewer,
+  SUPERADMIN-only (not the general permission system — an audit trail of
+  every admin's actions is itself sensitive enough to restrict to the one
+  role that can't be demoted). Caught two real issues here too: the new
+  API route file initially used a different export pattern than every
+  other route in the app and was missing the `force-dynamic` export those
+  all have specifically to stop a DB-backed GET route from being
+  statically cached (checked an existing route file's actual tail rather
+  than assuming, matched it exactly); and the dashboard table's first
+  draft used shorthand `<>...</>` fragment syntax inside a `.map()`,
+  which can't accept the `key` prop React requires there — fixed with an
+  explicit `Fragment` import.
+
+### Section 15 — Next.js Best Practices
+Audit-plus-targeted-fixes, not a rewrite, as planned — App Router /
+Server Components were already substantially true going into this batch
+(confirmed, not assumed). One earlier-planned item was deliberately
+reconsidered and NOT done: converting the new 2FA/IP-whitelist toggles to
+Server Actions, which on closer look would mean losing the rate-limiting/
+CSRF/sanitization/security-and-audit-logging every REST endpoint gets
+uniformly through `apiHandler.js`, unless manually re-implemented per
+action — reasoning documented rather than the plan executed mechanically
+once it stopped making sense. `server-only` package added to the 6
+highest-leverage shared modules (mongodb/security/logger/cache/
+apiObservability/apiHandler) — checked FIRST that none were already
+imported by a client component (would have surfaced an existing mistake
+as a new build failure, not just prevented a future one) before adding
+anything. Disclosed honestly as covering the central chokepoints with
+transitive protection, not an exhaustive pass across all ~50+ files under
+`server/`. The "optimize middleware.js" item turned out to have nothing
+to optimize — the IP-whitelist logic correctly never went there in the
+first place, for the Edge/Mongoose reason above.
+
+Verified: full project, 226 `.js`/`.jsx`/`.mjs` files under `src/` plus 6
+root-level config files, 0 syntax errors, 0 import/export problems — the
+whole tree, not just what this batch touched. As with every batch before
+this one: no live build, `npm install`, or actual runtime execution was
+possible in this sandbox. Running a real `npm install && npm run build`
+before deploying remains the one thing this pass genuinely could not do.
+
+---
+
+## Batch 18 — Real runtime bug fixes (first actual `npm run dev` output seen)
+
+Different in kind from every batch before it: this one is a response to
+**real output from actually running the app** (`npm run dev`), the first
+time any of this project's Section 9–12 work has been exercised outside
+this sandbox's static verification. Two real, distinct issues; two
+genuinely lower-priority ones acknowledged but not acted on.
+
+### Fixed: React Server Component prop-serialization warning
+```
+Warning: Only plain objects can be passed to Client Components from
+Server Components. Objects with toJSON methods are not supported.
+[{buffer: ...}]
+```
+**Root cause**: Mongoose's `.lean()` strips the Document wrapper but does
+NOT deep-convert every BSON-typed field — `_id` (on a product and on every
+populated `category`/`subCategory`) stayed a real ObjectId instance (that
+`{buffer: ...}` in the warning is literally an ObjectId's internal 12-byte
+representation), `createdAt`/`updatedAt` stayed Date instances, and this
+app's `translations` fields (category/subCategory models) stayed Map
+instances. Batch 16's Server Component pages
+(`product/[product]`, `category/[slug]`, `[category]/[subCategory]`) all
+fetch data this way and hand it straight to client components
+(`ProductCard`, `ProductGallery`, `ProductPurchasePanel`,
+`ProductSuggestions`) — a real, live bug in that work, confirmed the
+moment someone actually ran it, and exactly the kind of thing this
+sandbox's static-only verification (no network, no real Next.js dev
+server) could not have caught. Worth being direct about that rather than
+implying otherwise.
+
+**Fix**: new `src/lib/serialize.js` — `serializeDoc()` recursively
+converts ObjectId → hex string, Date → ISO string, Map → plain object,
+walking arrays/nested objects. Wired into all three Server Component data
+fetchers (`server/data/product.js`, `category.js`, `subcategory.js`),
+applied once to the whole result right before it's cached/returned, so
+every consumer downstream — the page component's own JSX and every client
+component it renders — automatically gets clean data with no changes
+needed at any of those call sites. Behaviorally tested (not just
+syntax-checked, given this is exactly the kind of logic where that
+distinction has mattered every time it's come up in this project) against
+a fixture mimicking the actual reported shape (fake ObjectId with a
+`buffer` property, nested populated category with a `translations` Map,
+Date fields, deeply nested arrays) — 10 test cases including the
+decisive one: the output survives an actual `JSON.stringify`/`JSON.parse`
+round-trip completely unchanged, which is the real definition of
+"RSC-safe."
+
+**Second bug this same fix resolves as a side effect**, worth flagging
+explicitly: `ProductPurchasePanel.jsx`'s `handleBuyNow` compares
+`product._id` against cart items' `productId` (`(i.productId?._id ||
+i.productId) === product._id`) to check whether the product is already in
+the cart. Cart data arrives via the normal JSON REST API, where `_id` was
+always already a plain string (JSON has no ObjectId type — `JSON.stringify`
+calls `.toJSON()`/`.toString()` on it automatically during a normal API
+response). With `product._id` still an ObjectId before this fix, that
+comparison was `ObjectId === "someString"` — always `false`, regardless of
+whether it was actually the same product — meaning Buy Now could never
+detect "already in cart" and would risk double-adding. Serializing
+`product._id` to a string makes both sides of that comparison the same
+type, fixing this too, without touching that comparison's own code at all.
+
+### Fixed: missing `global-error.js` (Sentry's own recommendation)
+```
+It seems like you don't have a global error handler set up. It is
+recommended that you add a global-error.js file with Sentry
+instrumentation so that React rendering errors are reported to Sentry.
+```
+Direct, actionable feedback from Batch 17's own Sentry integration once it
+actually ran. New `src/app/global-error.js` — Next.js's documented
+exception to the usual `error.js` convention: it catches errors in the
+ROOT layout itself, which means it REPLACES the root layout when it
+renders rather than being wrapped by it (so, unlike a normal `error.js`,
+it renders its own complete `<html>`/`<body>`, since `app/layout.jsx`
+isn't there to provide them for this specific case). Calls
+`Sentry.captureException(error)` in a `useEffect`, matching Sentry's own
+documented pattern. Deliberately minimal and dependency-light — no design
+system, no next/font, no imports from elsewhere in the app — since if the
+root layout is broken badly enough to reach this file, it's the one piece
+of UI that has to keep working regardless of what else is wrong.
+
+### Acknowledged, not acted on (stated plainly, with reasoning)
+- **`[webpack.cache.PackFileCacheStrategy] Serializing big strings
+  (318kiB)...`** — an informational warning about webpack's own dev-mode
+  persistent build cache, not a functional defect. Diagnosing exactly
+  which single string is 318kiB would need actual bundle-inspection
+  tooling (a running dev server, `next build` with analysis) this sandbox
+  doesn't have; guessing at a fix without being able to verify it would
+  be exactly the kind of speculative change this project has avoided
+  throughout. This is also a common, generally-benign warning across many
+  Next.js + Tailwind projects, not a distinctive signal of a defect.
+- **`npm warn deprecated` for `multer@1.4.5-lts.2`, `glob@9.3.5`,
+  `uuid@9.0.1`/`uuid@10.0.0`, `recharts@2.15.4`** — all pre-existing
+  dependencies from before any of this project's Section 9–12 work
+  (confirmed against the original `package.json`), not something this
+  batch or the two before it introduced. Deliberately not upgraded
+  unilaterally: `multer` 1.x→2.x and `recharts` 2.x→3.x are both
+  documented BREAKING major-version migrations (recharts' own deprecation
+  message links a migration guide) — recharts specifically powers the
+  entire analytics dashboard this project just finished converting to
+  dynamic imports (Batch 16), so an untested major-version bump there is
+  a real regression risk, not a safe drop-in. `uuid` showing both v9 and
+  v10 suggests a transitive dependency wants a different version than
+  this app's own direct `^10.0.0` — not something fixable by editing this
+  app's own `package.json` alone. `glob` is very likely transitive
+  entirely (not a direct dependency here). Flagged clearly rather than
+  silently upgraded; happy to act on any of these specifically if wanted,
+  but not as an unrequested side effect of a bug-fix pass.
+
+Verified: full project (219 `.js`/`.jsx`/`.mjs` files under `src/` +
+`globals.css`), 0 syntax errors, 0 import/export problems.
+
+---
+
+## Batch 17 — Section 11 (Logging) + Section 12 (Monitoring) implementation pass
+
+Scope: implement the full Section 11 (Logging) and Section 12 (Monitoring)
+checklists on top of Batch 16. Same sandbox constraints as every prior
+batch — no network access, so `winston`, `morgan`, `@sentry/nextjs`, and
+`@vercel/otel` are all in `package.json` but were never actually installed
+or run here; verified statically (esbuild transform + the import/export
+checker, both already validated against fixtures in Batch 16) plus careful
+manual review, which is what actually caught the one real bug this batch
+introduced (see below — a class of bug confirmed, by direct test, that the
+automated syntax checker cannot catch at all).
+
+### Section 11 — Logging
+- **Winston**, new `src/lib/logger.js`: four categorized loggers (request/
+  error/security/audit), each with a Console transport always on and a
+  `winston-daily-rotate-file` transport gated behind `!process.env.VERCEL`.
+  This app's documented primary deploy target is Vercel serverless
+  (VERCEL_DEPLOYMENT.md), where the filesystem outside `/tmp` is
+  effectively read-only and not shared across invocations — a rotating log
+  FILE written during one invocation isn't reliably there for the next one
+  to read, and Vercel's own guidance is to just write to stdout/stderr,
+  which it captures automatically. Implemented daily rotation fully and
+  correctly (the literal ask) rather than skip it, but made it conditional
+  on where it actually makes sense, same honest-tradeoff spirit as
+  security.js's own in-memory-rate-limiter comment. Retention differs by
+  category (7d request / 30d error / 90d security / 365d audit) — routine
+  high-volume logs vs. the kind of trail a compliance review or
+  post-incident investigation needs to go back much further for.
+- **Request logs**: `lib/apiObservability.js`'s `logRequest()` — which
+  already had a comment explicitly anticipating this exact swap ("swap
+  this one function for a real logger... every call site stays the same")
+  — now calls the Winston request logger instead of `console.log`. Every
+  existing call site is unchanged.
+- **Error logs**: new `logError()`, wired into `apiHandler.js`'s top-level
+  catch block alongside (not replacing) the existing `console.error` —
+  Vercel needs stdout regardless of what else is wired up.
+- **Security logs**: new `logSecurityEvent()`, wired into four places that
+  previously made security decisions with zero logging anywhere: CSRF
+  (Origin/Referer) rejection, rate-limit-exceeded (both in
+  `apiHandler.js`), and failed-login/account-lockout/IP-block (in
+  `security.js`'s `recordFailedLogin`, severity-differentiated — every
+  failed attempt at `info`, a distinct `warn` specifically at the moment a
+  lockout/block newly triggers, not on every subsequent attempt while
+  already locked). Also added a one-time-per-process warning for a
+  previously-invisible misconfiguration: CSRF protection silently doing
+  nothing at all when `NEXT_PUBLIC_SITE_URL` isn't set (found while
+  updating a `.env.example` comment that turned out to be accurate but
+  incomplete — see "mistakes and findings" below).
+- **Audit logs**: new `logAuditEvent()` — "who did what, when" for
+  authenticated, mutating (non-GET/HEAD/OPTIONS), successful (2xx)
+  requests, wired in generically at `apiHandler.js`'s single choke point
+  rather than added to each of the ~15 controllers with admin/mutation
+  endpoints individually. Required a real, carefully-scoped design change:
+  `mockReq.userId` (set by `auth.js`'s middleware) only lived inside
+  `handleRequest()`'s own scope, not the outer `createNextHandler()` where
+  the response/logging actually happens. Rather than change
+  `handleRequest`'s return shape at each of its several early-return
+  points (CSRF/rate-limit/DB-failure/no-route/file-error/middleware-stop —
+  real risk to the single most critical shared function in the app),
+  `createNextHandler` now creates one shared plain object BEFORE calling
+  `handleRequest`, and `buildMockRequest` builds the mock request ON TOP
+  OF that same object (`Object.assign`, not a fresh literal) — so
+  `auth.js`'s later `req.userId = decoded.id` mutates the exact object the
+  outer function already holds a reference to. None of `handleRequest`'s
+  existing early-return statements needed to change at all. Confirmed via
+  full manual re-read of the whole file that this is correct end to end,
+  including that the audit log correctly captures the SANITIZED body
+  (sanitizeInput() mutates that same shared object) rather than raw input.
+- **Morgan**: genuinely adapted, not just installed and ignored. This app
+  has no real Express app or Node http request/response lifecycle for
+  traditional `app.use(morgan(...))` middleware to attach to — Next.js
+  Route Handlers get a Web API Request, and `apiHandler.js`'s mock req/res
+  are a shim built for Express-STYLE controller code, not for hosting
+  middleware. New `lib/morganAdapter.js` uses morgan's real, stable public
+  API in a decoupled way instead: `morgan.token()` for custom tokens fed
+  with data this app already computes (sidesteps needing morgan's own
+  internal response-timing hook, which depends on the real middleware
+  wrapper running), `morgan.compile(format)` called directly against a
+  minimal shim rather than ever attached as middleware. Wrapped in
+  try/catch with a manual fallback format, since this adapts an API
+  surface that couldn't be verified live in this sandbox — a logging
+  concern must never be able to break the actual response it's
+  describing. Output feeds into the structured request-log entry as an
+  `accessLog` field rather than a second separate stream.
+
+### Section 12 — Monitoring
+- **Sentry**: `sentry.client.config.js` / `sentry.server.config.js` /
+  `sentry.edge.config.js` at the project root (the last one genuinely
+  needed, not boilerplate — `middleware.js` runs on Edge, a Next.js
+  requirement for Middleware, not a choice, so Edge-runtime errors need
+  their own init). `next.config.mjs` wrapped with `withSentryConfig()`,
+  outermost — after `withBundleAnalyzer`, reasoned through deliberately:
+  Sentry's webpack plugin needs visibility into the FINAL webpack config
+  including whatever other plugins already changed. Client config
+  correctly reads `NEXT_PUBLIC_SENTRY_DSN` (Next.js only inlines
+  `NEXT_PUBLIC_`-prefixed vars into browser bundles; a plain `SENTRY_DSN`
+  read there would just be `undefined`), server/edge read plain
+  `SENTRY_DSN`. Everything is a safe no-op with no DSN configured — fully
+  "prepared," genuinely activates with zero further code changes once a
+  real Sentry account/DSN exists, which this sandbox has no way to create
+  or verify against. Stated plainly: Sentry's Next.js SDK integration
+  conventions have shifted across major versions; this is the
+  well-established, broadly-compatible pattern, and running
+  `npx @sentry/wizard@latest -i nextjs` once after `npm install` is worth
+  doing to confirm it matches whatever version actually installs.
+- **OpenTelemetry**: `@vercel/otel` (the Vercel-maintained convenience
+  package) over hand-rolling `@opentelemetry/sdk-node` + exporters — this
+  app's documented deploy target IS Vercel, so the first-party, simpler,
+  more version-safe option is also the one that actually matches where
+  this runs. Registered from `src/instrumentation.js` (placed in `src/`,
+  matching this project's own established convention of keeping Next.js
+  special files there — confirmed via where `middleware.js` already
+  lives, not assumed), Next.js's documented single hook for exactly this
+  kind of "run once per runtime at startup" code — also where Sentry's
+  server/edge configs get loaded from, split by
+  `process.env.NEXT_RUNTIME`.
+- **Health / Readiness / Liveness**: three new endpoints
+  (`api/health`, `api/health/live`, `api/health/ready`), deliberately NOT
+  routed through `apiHandler.js`'s usual pipeline like every other API
+  resource group — that pipeline's CSRF check, rate limiting, and
+  hard-DB-connection requirement would all actively work against what a
+  health check needs (monitoring probes typically send bare requests with
+  no Origin/Referer at all; a fixed polling interval could plausibly trip
+  a rate limit meant for abuse, causing a false "unhealthy" verdict from
+  the monitor tripping its OWN limiter; and collapsing on a DB failure the
+  same way every other endpoint does would make it impossible to
+  distinguish "the process is fine" from "a dependency is down," which is
+  the entire reason to split this into three endpoints rather than one).
+  Matches the precedent already set by `api/order/webhook/route.js` — a
+  static, non-catch-all route living alongside a resource group's usual
+  `[...segments]` catch-all, confirmed to cause no routing conflict.
+  Liveness stays trivial and dependency-free on purpose (a Kubernetes-style
+  liveness check that pings the database would cause an orchestrator to
+  repeatedly restart a perfectly healthy process during a database blip —
+  restarting it fixes nothing). Readiness genuinely checks Mongo,
+  bounded by the existing `withTimeout` helper (reused, not
+  reimplemented). Honest caveat stated directly in the liveness endpoint's
+  own comment: Vercel serverless doesn't have a literal "restart this pod"
+  concept the way Kubernetes does, so the liveness/readiness distinction
+  matters most for a future containerized/self-hosted deployment — still
+  correctly implemented now rather than treated as dead weight because it
+  doesn't map perfectly onto the current hosting model, and genuinely
+  useful today regardless (uptime-monitoring services, a load balancer if
+  ever fronted by one).
+
+### Mistakes made and caught along the way (again stated plainly)
+- **Real bug, caught by manual review, not tooling**: while adding the
+  CSRF-rejection security-log call in `apiHandler.js`, referenced `ip` in
+  that call before its own `const ip = getClientIp(nextRequest)`
+  declaration a few lines below (the original code only computed `ip`
+  later, in the rate-limiting section, since CSRF used to run before
+  anything needed it). This is a temporal-dead-zone `ReferenceError` —
+  would have crashed on every actual CSRF rejection in production. Fixed
+  by moving the `ip` computation earlier (pure, side-effect-free, safe to
+  move). Confirmed by direct, deliberate test — feeding esbuild a
+  minimal repro of exactly this pattern — that the syntax checker built in
+  Batch 16 does NOT catch this class of bug at all (a TDZ violation is
+  valid syntax; it only fails at actual execution). Worth remembering
+  going forward: any code that reorders or moves existing logic needs a
+  manual "does every variable this touches already exist at this point"
+  check — automated syntax checking alone is not sufficient for that
+  specific class of change, and this batch is proof it's not a
+  theoretical concern.
+- Started `next.config.mjs`'s Sentry build options with an `errorHandler`
+  callback whose exact current shape across `@sentry/nextjs` versions I
+  wasn't confident about. Reconsidered and removed it rather than guess —
+  kept only the options confidently verified as stable across versions
+  (org/project/authToken/silent/widenClientFileUpload/hideSourceMaps/
+  disableLogger).
+- Re-examined an existing `.env.example` comment ("CSRF fail-open... logged
+  nowhere") while updating it for this batch's changes, to make sure it
+  wasn't now stale. It was still accurate — but incomplete: one specific
+  fail-open path (missing `NEXT_PUBLIC_SITE_URL`, meaning CSRF protection
+  silently does nothing at all) is a genuine, actionable misconfiguration
+  that had zero visibility anywhere. Added a one-time-per-process security
+  log entry for exactly that case rather than just editing the comment to
+  match the old behavior — the other two fail-open branches (missing
+  Origin/Referer header; a malformed one) were deliberately left
+  unlogged, since both are benign/expected in normal operation (see
+  `isSameOriginRequest`'s own comments) and logging every occurrence would
+  just be noise, unlike the misconfiguration case.
+
+Verified: full project re-checked after every meaningful change, not just
+once at the end — 217 `.js`/`.jsx`/`.mjs` files under `src/` plus the 6
+new/changed root-level config files (`next.config.mjs`, three
+`sentry.*.config.js`, `tailwind.config.js`, `postcss.config.js`), 0 syntax
+errors, 0 import/export problems. As with every batch before this one: no
+live build, `npm install`, or Lighthouse/Sentry-dashboard run was possible
+in this sandbox — running a real `npm install && npm run build` before
+deploying remains the one thing to actually do that this pass couldn't.
+
+---
+
 ## Batch 16 — Section 9 (Performance) + Section 10 (SEO) implementation pass
 
 Scope: implement the full Section 9 (Performance) and Section 10 (SEO)

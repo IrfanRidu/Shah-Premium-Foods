@@ -1,4 +1,19 @@
+// Section 15 (Next.js Best Practices) — "Server-only modules": this file
+// now imports connectDb/AuditLogModel (Section 13) on top of Node's
+// `crypto` module (a different, incompatible API shape from the Web
+// Crypto API browsers/Edge expose under the same global name) — multiple
+// independent reasons this can never be client-bundled correctly.
+import "server-only";
+// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
+// time guarantee, not just convention. Uses Node's `crypto` module
+// (different API shape than the client-side Web Crypto API) and, since
+// Section 13, imports the Mongoose-backed AuditLogModel directly.
+import "server-only";
 import crypto from "crypto";
+import { requestLogger, securityLogger, auditLogger, errorLogger } from "@/lib/logger";
+import { formatMorganLine } from "@/lib/morganAdapter";
+import connectDb from "@/lib/mongodb";
+import AuditLogModel from "@/server/models/auditLog.model";
 
 // Security/API-design audit (Section 8 — API Security). Shared utilities
 // wired into src/lib/apiHandler.js, the single choke point every one of
@@ -59,17 +74,16 @@ function redactForLogging(obj, depth = 0) {
 }
 
 /**
- * One structured JSON log line per completed request. Deliberately plain
- * `console.log` (not a logging library) — this project has no existing
- * log-shipping infrastructure to integrate with, and a single JSON object
- * per line is already directly parseable by any log aggregator (Vercel
- * Logs, CloudWatch, Datadog, etc.) without extra tooling. Swap this one
- * function for a real logger (pino, winston) if/when this app adopts one
- * — every call site stays the same.
+ * One structured log entry per completed request, via the Winston request
+ * logger (see lib/logger.js). This function's signature and every one of
+ * its call sites are unchanged from before Section 11 — this is the exact
+ * upgrade this function's own comment used to anticipate ("swap this one
+ * function for a real logger... every call site stays the same"), so
+ * nothing calling logRequest() needed to change, only what happens inside
+ * it.
  */
 export function logRequest({ requestId, correlationId, method, path, status, durationMs, ip, body }) {
   const entry = {
-    ts: new Date().toISOString(),
     requestId,
     correlationId,
     method,
@@ -77,6 +91,11 @@ export function logRequest({ requestId, correlationId, method, path, status, dur
     status,
     durationMs,
     ip,
+    // A familiar, standard-looking HTTP-access-log-style line (Morgan,
+    // adapted — see morganAdapter.js for why it's not attached as
+    // traditional middleware here) folded into the same structured entry,
+    // rather than written to a second, separate stream.
+    accessLog: formatMorganLine({ method, url: path, status, durationMs, requestId, correlationId }),
   };
   // Only log a body sample for non-2xx responses — successful requests
   // don't need their payload logged at all (less exposure, less noise);
@@ -84,7 +103,91 @@ export function logRequest({ requestId, correlationId, method, path, status, dur
   if (status >= 400 && body && Object.keys(body).length) {
     entry.body = redactForLogging(body);
   }
-  console.log(JSON.stringify(entry));
+  requestLogger.http(`${method} ${path} ${status}`, entry);
+}
+
+// ── Security event logging ─────────────────────────────────────────────
+// Rate-limit rejections, CSRF (Origin/Referer) rejections, login lockouts,
+// and IP blocks all already exist as DECISIONS in this codebase (see
+// lib/security.js and apiHandler.js) — none of them were previously
+// written to a distinct, reviewable log anywhere; they only affected
+// in-memory state and a response to the one request that triggered them.
+// This is the fix for that gap. `severity` picks the Winston level: a
+// single rate-limit hit is routine (`info`); an account lockout or IP
+// block is a real signal worth a human noticing (`warn`); a rejected
+// request that looks like active exploitation attempts, if ever
+// classified as such, would use `error`.
+export function logSecurityEvent({ type, severity = "warn", ip, path, method, email, details }) {
+  securityLogger[severity](`security:${type}`, {
+    type,
+    ip,
+    path,
+    method,
+    ...(email ? { email } : {}),
+    ...(details ? { details } : {}),
+  });
+}
+
+// ── Audit event logging ──────────────────────────────────────────────
+// "Who did what, when" for authenticated, mutating (non-GET), successful
+// requests — wired in generically at apiHandler.js's single choke point
+// (see that file) rather than added piecemeal to each of the ~15
+// controllers with admin/mutation endpoints, for the same reason every
+// other cross-cutting concern in this app lives there: one integration
+// point that automatically covers the whole API surface, present and
+// future, instead of something that has to be remembered on every new
+// mutating endpoint added later.
+export async function logAuditEvent({ userId, userRole, method, path, status, body, ip }) {
+  const redactedBody = body && Object.keys(body).length ? redactForLogging(body) : undefined;
+
+  auditLogger.info(`audit:${method}:${path}`, {
+    userId,
+    userRole,
+    method,
+    path,
+    status,
+    ...(redactedBody ? { body: redactedBody } : {}),
+  });
+
+  // Section 13 (Admin Panel Security) — also persist to MongoDB, for the
+  // dashboard/audit-log viewer (a log file/aggregator can't be
+  // paginated/filtered by user or date range from inside the app itself;
+  // a collection can). Best-effort and bounded: a slow or unreachable
+  // database must never hang or fail the actual request that triggered
+  // this — awaited (not fire-and-forget) because Vercel serverless
+  // functions can be frozen/terminated the instant the response is sent,
+  // with no guarantee a detached background write actually completes —
+  // but capped at 3s and wrapped in try/catch so the worst case is a
+  // missing dashboard entry, never a slow or broken API response.
+  try {
+    await withTimeout(
+      (async () => {
+        await connectDb();
+        await AuditLogModel.create({ userId, userRole, method, path, status, body: redactedBody, ip });
+      })(),
+      3000,
+      "audit log persistence"
+    );
+  } catch (err) {
+    errorLogger.error("Failed to persist audit log entry to MongoDB", {
+      error: err instanceof Error ? err.message : String(err),
+      method, path,
+    });
+  }
+}
+
+// ── Error logging ────────────────────────────────────────────────────
+// Companion to apiHandler.js's existing console.error in its top-level
+// catch block (kept as-is, not removed — Vercel needs stdout regardless
+// of what else is wired up) — this additionally routes the same error
+// through the Winston error logger, so it's captured with daily rotation
+// when self-hosted (see lib/logger.js) and consistently structured
+// alongside every other log category.
+export function logError(err, context = {}) {
+  errorLogger.error(err instanceof Error ? err.message : String(err), {
+    stack: err instanceof Error ? err.stack : undefined,
+    ...context,
+  });
 }
 
 // ── Pagination ──────────────────────────────────────────────────────────

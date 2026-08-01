@@ -5,6 +5,9 @@ const api = {
   verifyEmail:           { url: "/api/user/verify-email",        method: "post" },
   resendVerificationOtp: { url: "/api/user/resend-verification-otp", method: "post" },
   login:                 { url: "/api/user/login",               method: "post" },
+  // Section 13 (Admin Panel Security)
+  verifyLoginOtp:        { url: "/api/user/verify-login-otp",    method: "post" },
+  updateTwoFactor:       { url: "/api/user/two-factor",          method: "put"  },
   logout:                { url: "/api/user/logout",              method: "get"  },
   logoutAllDevices:      { url: "/api/user/logout-all-devices",  method: "post" },
   listSessions:          { url: "/api/user/sessions",            method: "get"  },
@@ -54,6 +57,9 @@ const api = {
   uploadImage:           { url: "/api/file/upload",              method: "post" },
   getSiteSettings:       { url: "/api/settings/get",             method: "get"  },
   updateSiteSettings:    { url: "/api/settings/update",          method: "put"  },
+  // Section 13 (Admin Panel Security): used only by the IP-whitelist UI
+  // in dashboard/site-settings, to show the admin their own current IP.
+  getMyIp:               { url: "/api/settings/my-ip",           method: "get"  },
   addBanner:             { url: "/api/settings/banner/add",      method: "post" },
   deleteBanner:          { url: "/api/settings/banner/delete",   method: "delete"},
   // Fix (payment logos never persisted): mirrors addBanner/deleteBanner above —
@@ -168,6 +174,8 @@ const api = {
   getSitemapUrls:        { url: "/api/settings/sitemap-urls",    method: "get"  },
   // Fix 27: Google OAuth
   googleAuth:            { url: "/api/user/google-auth",         method: "post" },
+  // Section 13 (Admin Panel Security)
+  getAuditLogs:          { url: "/api/audit-log/list",           method: "get"  },
 };
 
 export default api;

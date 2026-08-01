@@ -100,6 +100,12 @@ server actually has access to. Add it and restart.
 - **Images:** Cloudinary
 - **Email:** Resend
 - **Payments:** Stripe (optional)
+- **Logging:** Winston (request/error/security/audit, daily rotation when
+  self-hosted) + Morgan-style access-log formatting — see
+  `src/lib/logger.js`. Works with zero configuration.
+- **Monitoring:** Sentry (error tracking) + OpenTelemetry (`@vercel/otel`)
+  — both fully wired but inert until you add a Sentry DSN; see
+  `.env.example` and `VERCEL_DEPLOYMENT.md`.
 
 ## Key Routes
 | Path | Description |
@@ -113,3 +119,6 @@ server actually has access to. Add it and restart.
 | `/dashboard/analytics` | Admin analytics |
 | `/dashboard/product` | Manage products |
 | `/dashboard/site-settings` | Site customisation |
+| `/api/health` | General health status (uptime, DB connectivity) |
+| `/api/health/live` | Liveness probe — no dependency checks |
+| `/api/health/ready` | Readiness probe — checks real database connectivity |

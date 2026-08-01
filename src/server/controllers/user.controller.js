@@ -5,6 +5,7 @@ import AddressModel from "../models/address.model.js";
 import sendEmail from "../config/sendEmail.js";
 import verifyEmailTemplate from "../utils/verifyEmailTemplete.js";
 import forgotPasswordTemplate from "../utils/forgetPasswordTemplete.js";
+import loginOtpTemplate from "../utils/loginOtpTemplate.js";
 import generateOtp from "../utils/generateOtp.js";
 import generateAccessToken from "../utils/generateAccessToken.js";
 import generateRefreshToken from "../utils/generateRefreshToken.js";
@@ -229,6 +230,54 @@ export const resendVerificationOtpController = async (req, res) => {
   }
 };
 
+// Section 13 (Admin Panel Security) — email-OTP 2FA. Extracted from what
+// used to be the tail end of loginUserController itself (token issuance,
+// last_login_date update, cookie setting, the success response) — now
+// shared by two callers: loginUserController directly, for accounts
+// without 2FA enabled (unchanged behavior, still happens immediately
+// after password verification), and verifyLoginOtpController below, for
+// accounts WITH it enabled (called only after the emailed code is
+// confirmed). Both need to finish a login exactly the same way; this
+// exists so that finishing sequence is defined once, not duplicated.
+async function completeLogin(user, req, res) {
+  // Note: recordSuccessfulLogin() is NOT called here — it already ran at
+  // the point the PASSWORD was verified correct, in loginUserController,
+  // which is the semantically right place for it regardless of whether
+  // 2FA is pending (brute-force tracking is specifically about
+  // password-guessing; that's already resolved once the password itself
+  // checks out, independent of a separate email-inbox-access step). By
+  // the time this function runs — whether called directly for a non-2FA
+  // account or from verifyLoginOtpController after a code is confirmed —
+  // that call has already happened, possibly in an earlier request
+  // entirely; calling it again here would just be a harmless but
+  // pointless duplicate (Map.delete() on an already-cleared entry).
+  const accessToken = generateAccessToken(user._id, user.role);
+  const refreshToken = await generateRefreshToken(user._id, req, user.role);
+
+  await UserModel.updateOne(
+    { _id: user._id },
+    { last_login_date: new Date() }
+  );
+
+  res.cookie("accessToken", accessToken, cookieOptions);
+  res.cookie("refreshToken", refreshToken, cookieOptions);
+
+  const userData = await UserModel.findById(user._id)
+    .select("-password -sessions -forgot_password_otp -forgot_password_expiry -login_otp -login_otp_expiry")
+    .populate("address_details");
+
+  return res.json({
+    message: "Login successful",
+    error: false,
+    success: true,
+    data: {
+      accessToken,
+      refreshToken,
+      data: userData,
+    },
+  });
+}
+
 // LOGIN
 export const loginUserController = async (req, res) => {
   try {
@@ -305,30 +354,98 @@ export const loginUserController = async (req, res) => {
 
     recordSuccessfulLogin(email);
 
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = await generateRefreshToken(user._id, req);
+    // Section 13 (Admin Panel Security) — email-OTP 2FA. If enabled on
+    // this account, password verification alone is NOT enough to finish
+    // logging in — generate a fresh code, email it, and stop here; only
+    // verifyLoginOtpController (below) actually completes the login,
+    // after that code is confirmed. Same OTP shape/lifecycle as the
+    // existing forgot-password flow (10 minutes, deliberately shorter
+    // than that flow's 1 hour — a login code that's only useful for a
+    // few minutes is a meaningfully smaller window for an intercepted
+    // email to be exploited in).
+    if (user.twoFactorEnabled) {
+      const otp = generateOtp();
+      const expireTime = new Date(Date.now() + 10 * 60 * 1000);
 
-    await UserModel.updateOne(
-      { _id: user._id },
-      { last_login_date: new Date() }
-    );
+      await UserModel.findByIdAndUpdate(user._id, {
+        login_otp: otp,
+        login_otp_expiry: expireTime,
+      });
 
-    res.cookie("accessToken", accessToken, cookieOptions);
-    res.cookie("refreshToken", refreshToken, cookieOptions);
+      await sendEmail({
+        sendTo: email,
+        subject: "Your sign-in code - Shah Premium Foods",
+        html: loginOtpTemplate({ name: user.name, otp }),
+      }).then((r) => {
+        if (!r?.success) console.warn(`Login OTP email to ${email} did not send:`, r?.error);
+      });
 
-    const userData = await UserModel.findById(user._id)
-      .select("-password -sessions -forgot_password_otp -forgot_password_expiry")
-      .populate("address_details");
+      return res.json({
+        message: "Enter the code we just emailed you to finish signing in.",
+        error: false,
+        success: true,
+        data: { requiresTwoFactor: true, email },
+      });
+    }
 
+    return completeLogin(user, req, res);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// Section 13 (Admin Panel Security) — completes a login that
+// loginUserController paused for 2FA. Deliberately its own endpoint
+// (rather than, say, an extra param on the login endpoint) so the
+// frontend's flow is explicit: submit credentials → if
+// `requiresTwoFactor`, show a code-entry screen → submit that here.
+export const verifyLoginOtpController = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
+
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "Email not registered", error: true, success: false });
+    }
+
+    if (!user.login_otp_expiry || user.login_otp_expiry < new Date()) {
+      return res.status(400).json({ message: "Code has expired. Please log in again.", error: true, success: false });
+    }
+    if (!otp || otp !== user.login_otp) {
+      return res.status(400).json({ message: "Incorrect code", error: true, success: false });
+    }
+
+    await UserModel.updateOne({ _id: user._id }, { login_otp: null, login_otp_expiry: null });
+
+    return completeLogin(user, req, res);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Internal server error",
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// Section 13 (Admin Panel Security) — toggle 2FA on/off for the logged-in
+// user's own account. No separate email-verification step needed to turn
+// it ON: the account email is already verified (see `verify_email` /
+// email_verify_otp at registration), so it's already established as
+// reachable and controlled by this user.
+export const updateTwoFactorController = async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await UserModel.updateOne({ _id: req.userId }, { twoFactorEnabled: !!enabled });
     return res.json({
-      message: "Login successful",
+      message: enabled ? "Two-factor authentication enabled" : "Two-factor authentication disabled",
       error: false,
       success: true,
-      data: {
-        accessToken,
-        refreshToken,
-        data: userData,
-      },
+      data: { twoFactorEnabled: !!enabled },
     });
   } catch (error) {
     return res.status(500).json({
@@ -765,14 +882,33 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
+    // Section 13 (Admin Panel Security): role isn't embedded in the
+    // refresh token's own payload — fetched fresh here instead, same
+    // reasoning permission.js already applies to every permission-checked
+    // request: a role can change between issuance and now (e.g. an admin
+    // demoted mid-session), and trusting a stale claim from the token
+    // being refreshed would miss that. Small, indexed lookup on `_id`,
+    // consistent with the cost every permission-protected request already
+    // pays. Deliberately fetched BEFORE expiresAt/rotateSession below (not
+    // after) — the session record created by rotateSession needs the
+    // SAME expiry the actual new JWT gets, or the two would disagree
+    // (e.g. a session record claiming 7 more days while the JWT itself
+    // — the thing actually checked on every request — expires in 4
+    // hours). Both need to agree from the same source, computed once.
+    const refreshingUser = await UserModel.findById(decoded.id).select("role");
+    const isAdminRefresh = ["ADMIN", "SUPERADMIN"].includes(refreshingUser?.role);
+
     // Security audit: refresh token ROTATION with reuse detection (see
     // sessionManager.js's own top-of-file comment for the full mechanics
     // and why the reused-token case revokes every session on the account
     // rather than just this one). Every successful refresh now issues a
     // BRAND NEW refresh token — the one just presented becomes permanently
     // invalid the instant it's used, whether or not it's still within its
-    // 7-day expiry.
-    const expireStr = process.env.REFRESH_TOKEN_EXPIRE || "7d";
+    // 7-day (or, for admins, 4-hour — Section 13 admin session timeout)
+    // expiry.
+    const expireStr = isAdminRefresh
+      ? (process.env.ADMIN_REFRESH_TOKEN_EXPIRE || "4h")
+      : (process.env.REFRESH_TOKEN_EXPIRE || "7d");
     const match = /^(\d+)([smhd])$/.exec(expireStr);
     const unitMs = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 };
     const expiresAt = new Date(Date.now() + (match ? Number(match[1]) * unitMs[match[2]] : 7 * 24 * 60 * 60 * 1000));
@@ -788,7 +924,7 @@ export const refreshTokenController = async (req, res) => {
       });
     }
 
-    const newAccessToken = generateAccessToken(decoded.id);
+    const newAccessToken = generateAccessToken(decoded.id, refreshingUser?.role);
     const newRefreshToken = jwt.sign({ id: decoded.id, jti: newTokenId }, process.env.JWT_SECRET_REFRESH, { expiresIn: expireStr });
 
     res.cookie("accessToken", newAccessToken, cookieOptions);
@@ -814,8 +950,15 @@ export const getUserDetailsController = async (req, res) => {
   try {
     const userId = req.userId;
 
+    // Section 13 (Admin Panel Security): explicitly excluding the OTP
+    // fields too, not just password/sessions — in practice they're
+    // always null by the time any authenticated request can succeed
+    // (login/2FA verification clears them right before issuing tokens),
+    // so this isn't closing an active leak, but excluding them explicitly
+    // here is cheap, safe defense-in-depth rather than relying on that
+    // timing implicitly holding forever.
     const user = await UserModel.findById(userId)
-      .select("-password -sessions")
+      .select("-password -sessions -forgot_password_otp -forgot_password_expiry -login_otp -login_otp_expiry")
       .populate("address_details");
 
     return res.json({
@@ -837,7 +980,7 @@ export const getUserDetailsController = async (req, res) => {
 export const getAllUsersController = async (req, res) => {
   try {
     const users = await UserModel.find()
-      .select("-password -sessions")
+      .select("-password -sessions -forgot_password_otp -forgot_password_expiry -login_otp -login_otp_expiry")
       .sort({ createdAt: -1 });
 
     return res.json({

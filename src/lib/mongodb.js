@@ -1,3 +1,10 @@
+// Section 15 (Next.js Best Practices) — "Server-only modules": a
+// compile-time guarantee (an actual build error), not just a naming
+// convention, that this module — and transitively, anything that imports
+// it — can never end up in a client bundle even by accident. This file
+// specifically holds the Mongoose connection, about as core a
+// server-only concern as this app has.
+import "server-only";
 import mongoose from "mongoose";
 // Side-effect import: registers every Mongoose model the moment this module
 // is loaded (which happens before any request is handled — see

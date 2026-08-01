@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useForm } from "react-hook-form";
-import { FaTrash, FaPlus, FaGripVertical, FaImage } from "react-icons/fa";
+import { FaTrash, FaPlus, FaGripVertical, FaImage, FaShieldAlt, FaExclamationTriangle } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { setSiteSettings } from "@/store/siteSettingsSlice";
@@ -135,6 +135,13 @@ export default function SiteSettingsPage() {
   const [newA,  setNewA] = useState("");
   const [savingFaq, setSavingFaq] = useState(false);
 
+  // Section 13 (Admin Panel Security) — IP whitelist
+  const [ipWhitelistEnabled, setIpWhitelistEnabled] = useState(settings.security?.ipWhitelistEnabled || false);
+  const [ipWhitelist, setIpWhitelist] = useState(settings.security?.ipWhitelist || []);
+  const [newIp, setNewIp] = useState("");
+  const [myIp, setMyIp] = useState("");
+  const [savingSecurity, setSavingSecurity] = useState(false);
+
   useEffect(() => {
     if (settings.faq) setFaqs(settings.faq);
     if (settings.footer?.quickLinks) setQuickLinks(settings.footer.quickLinks);
@@ -142,7 +149,19 @@ export default function SiteSettingsPage() {
     if (settings.favicon) setFavicon(settings.favicon);
     if (settings.banners) setBanners(settings.banners);
     if (settings.paymentMethods) setPaymentMethods(settings.paymentMethods);
+    if (settings.security) {
+      setIpWhitelistEnabled(!!settings.security.ipWhitelistEnabled);
+      setIpWhitelist(settings.security.ipWhitelist || []);
+    }
   }, [settings]);
+
+  // Section 13 (Admin Panel Security): fetched once on mount, not tied to
+  // `settings` — this is "what IP is the SERVER currently seeing THIS
+  // request come from," not admin-configured data, so it doesn't belong
+  // in the settings sync effect above.
+  useEffect(() => {
+    Axios({ ...api.getMyIp }).then((r) => setMyIp(r.data?.data?.ip || "")).catch(() => {});
+  }, []);
 
   const handleLogoChange = (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -260,6 +279,45 @@ export default function SiteSettingsPage() {
       }
     } catch (err) { axiosToastError(err); }
     finally { setSavingFaq(false); }
+  };
+
+  // Section 13 (Admin Panel Security) — IP whitelist
+  const addIp = () => {
+    const trimmed = newIp.trim();
+    if (!trimmed || ipWhitelist.includes(trimmed)) return;
+    setIpWhitelist((prev) => [...prev, trimmed]);
+    setNewIp("");
+  };
+  const removeIp = (ip) => setIpWhitelist((prev) => prev.filter((x) => x !== ip));
+
+  const saveSecurity = async () => {
+    // Guard 1: enabling with an empty list would lock out every admin at
+    // once, including whoever's saving this very form.
+    if (ipWhitelistEnabled && ipWhitelist.length === 0) {
+      toast.error("Add at least one IP address before enabling the whitelist.");
+      return;
+    }
+    // Guard 2: enabling without the SAVER's own current IP in the list is
+    // almost certainly a mistake about to lock them out specifically —
+    // still allowed (maybe they're intentionally configuring this for
+    // someone else, from a machine that itself shouldn't have standing
+    // access), just requires a deliberate confirmation rather than
+    // silently doing something likely-unintended.
+    if (ipWhitelistEnabled && myIp && !ipWhitelist.includes(myIp)) {
+      const proceed = window.confirm(
+        `Your current IP (${myIp}) is not in the whitelist. Enabling this now may lock YOU out immediately. Continue anyway?`
+      );
+      if (!proceed) return;
+    }
+    try {
+      setSavingSecurity(true);
+      const r = await Axios({ ...api.updateSiteSettings, data: { security: { ipWhitelistEnabled, ipWhitelist } } });
+      if (r.data?.success) {
+        dispatch(setSiteSettings({ ...settings, security: r.data.data.security }));
+        toast.success("Security settings saved");
+      }
+    } catch (err) { axiosToastError(err); }
+    finally { setSavingSecurity(false); }
   };
 
   const onSubmit = async (data) => {
@@ -684,6 +742,72 @@ export default function SiteSettingsPage() {
         </div>
         <button type="button" onClick={saveFaq} disabled={savingFaq} className="btn-primary px-6 py-2 text-sm">
           {savingFaq ? "Saving FAQ…" : "Save FAQ"}
+        </button>
+      </Section>
+
+      {/* Section 13 (Admin Panel Security): IP whitelist */}
+      <Section title={<span className="flex items-center gap-2"><FaShieldAlt /> Admin IP Whitelist</span>}>
+        <p className="text-xs text-theme-muted">
+          When enabled, ADMIN and SUPERADMIN accounts can only use admin
+          features from a listed IP address. Customers and the storefront
+          are never affected by this.
+        </p>
+
+        {myIp && (
+          <p className="text-xs bg-[var(--color-bg)] border border-theme rounded-lg px-3 py-2">
+            Your current IP address: <span className="font-mono font-semibold">{myIp}</span>
+          </p>
+        )}
+
+        <label className="flex items-center gap-2 cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            checked={ipWhitelistEnabled}
+            onChange={(e) => setIpWhitelistEnabled(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <span className="text-sm font-medium">Enable IP whitelist</span>
+        </label>
+
+        {ipWhitelistEnabled && ipWhitelist.length === 0 && (
+          <p className="flex items-center gap-2 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+            <FaExclamationTriangle className="shrink-0" />
+            No IPs added yet — this can't be saved as enabled until at least one is added below.
+          </p>
+        )}
+
+        <div className="space-y-2 max-h-56 overflow-y-auto">
+          {ipWhitelist.map((ip) => (
+            <div key={ip} className="flex items-center justify-between gap-2 p-2.5 bg-[var(--color-bg)] border border-theme rounded-xl">
+              <span className="font-mono text-sm">{ip}</span>
+              {ip === myIp && <span className="text-xs text-green-600 font-medium shrink-0">this device</span>}
+              <button type="button" onClick={() => removeIp(ip)} className="text-red-500 hover:text-red-700 p-1 shrink-0 ml-auto">
+                <FaTrash size={12}/>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            value={newIp}
+            onChange={(e) => setNewIp(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addIp(); } }}
+            className="input-field text-sm font-mono flex-1"
+            placeholder="e.g. 203.0.113.42"
+          />
+          <button type="button" onClick={addIp} className="btn-outline px-3 py-2 text-sm flex items-center gap-1 shrink-0">
+            <FaPlus size={11}/> Add
+          </button>
+          {myIp && !ipWhitelist.includes(myIp) && (
+            <button type="button" onClick={() => setIpWhitelist((prev) => [...prev, myIp])} className="btn-outline px-3 py-2 text-sm shrink-0 whitespace-nowrap">
+              Add my IP
+            </button>
+          )}
+        </div>
+
+        <button type="button" onClick={saveSecurity} disabled={savingSecurity} className="btn-primary px-6 py-2 text-sm">
+          {savingSecurity ? "Saving…" : "Save Security Settings"}
         </button>
       </Section>
     </form>

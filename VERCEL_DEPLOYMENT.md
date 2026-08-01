@@ -97,6 +97,9 @@ where to get it):
 | `NEXT_PUBLIC_SITE_URL` | **Required** — see note below |
 | `NEXT_PUBLIC_API_URL` | Leave empty (same-origin) |
 | `NEXT_PUBLIC_CURRENCY_LOCALE` | Optional (defaults to `en-BD`) |
+| `LOG_DIR` | Not applicable on Vercel — logs go to Vercel's own Logs UI regardless (see below) |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Optional — error monitoring, see note below |
+| `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Optional — only for source-map upload |
 | `NODE_ENV` | Don't set this — Vercel sets it to `production` automatically |
 
 Generate the two JWT secrets locally with:
@@ -111,6 +114,22 @@ URLs there). You likely won't know your exact `*.vercel.app` URL until
 after the first deploy. That's fine — deploy once with your best guess (or
 leave it, the sitemap falls back to a placeholder), then come back and set
 it precisely, which brings us to:
+
+**About logging on Vercel:** this app's Winston setup (`src/lib/logger.js`)
+always writes to stdout/stderr, which is what Vercel actually captures —
+you don't need to configure anything for basic request/error/security/audit
+logs to show up in your project's **Logs** tab. The daily-rotating log
+*files* Winston can also produce are automatically skipped here (Vercel's
+serverless functions don't have a persistent filesystem to rotate files
+on) — that part only activates for a traditional `next start` deployment
+on your own server, not this one.
+
+**About Sentry:** entirely optional and inert until you set a DSN. If you
+want it, sign up free at https://sentry.io, create a Next.js project, and
+add its DSN as both `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` above (same
+value, two variables — see `.env.example` for why there are two). Leave
+the rest blank; source-map upload is a nice-to-have, not required for
+Sentry to start capturing errors.
 
 ## 5. Deploy, then two follow-up steps
 

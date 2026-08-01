@@ -5,9 +5,16 @@ import SubCategoryModel from "@/server/models/subcategory.model";
 import ProductModel from "@/server/models/product.model";
 import { extractIdFromSlug } from "@/lib/slug";
 import dataCache from "@/lib/cache";
+import { serializeDoc } from "@/lib/serialize";
 
 // Matches the old client-side fetch's own limit exactly
 // (`{...api.getProductByCategoryAndSubCategory, data:{...,page:1,limit:50}}`).
+// Bug fix (confirmed via real `npm run dev` output): the returned object
+// is passed through serializeDoc() before being cached/returned — see
+// lib/serialize.js and server/data/product.js's own comment for the full
+// diagnosis. Note the `belongsToCategory` check below already correctly
+// calls `.toString()` on the raw (pre-serialization) ObjectId itself, so
+// it's unaffected by/independent of this fix either way.
 const PAGE_SIZE = 50;
 
 // This route (app/[category]/[subCategory]/page.jsx) is a ROOT-LEVEL
@@ -51,7 +58,7 @@ export const getSubCategoryPageData = cache(async (catSlug, subSlug) => {
       const query = { category: { $in: [catId] }, subCategory: { $in: [subId] } };
       const products = await ProductModel.find(query).sort({ createdAt: -1 }).limit(PAGE_SIZE).lean();
 
-      return { category, subCategory, products };
+      return serializeDoc({ category, subCategory, products });
     },
     dataCache.TTL.MEDIUM
   );

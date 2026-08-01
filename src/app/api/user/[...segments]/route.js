@@ -6,6 +6,8 @@ import {
   verifyEmailController,
   resendVerificationOtpController,
   loginUserController,
+  verifyLoginOtpController,
+  updateTwoFactorController,
   logoutUserController,
   logoutAllDevicesController,
   listSessionsController,
@@ -29,6 +31,11 @@ const ROUTES = {
   "POST:/verify-email":                [[], verifyEmailController],
   "POST:/resend-verification-otp":     [[], resendVerificationOtpController],
   "POST:/login":                       [[], loginUserController],
+  // Section 13 (Admin Panel Security) — no auth middleware here, same as
+  // /login itself: this endpoint IS part of proving who the caller is,
+  // not something that requires already being authenticated.
+  "POST:/verify-login-otp":            [[], verifyLoginOtpController],
+  "PUT:/two-factor":                   [[auth], updateTwoFactorController],
   "GET:/logout":                       [[auth], logoutUserController],
   "POST:/logout-all-devices":          [[auth], logoutAllDevicesController],
   "GET:/sessions":                     [[auth], listSessionsController],

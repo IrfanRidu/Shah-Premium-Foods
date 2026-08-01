@@ -161,7 +161,43 @@ export default function ProfilePage() {
           user.model.js / sessionManager.js) — this surfaces that so it's
           an actual usable feature, not just backend plumbing the user
           would have no way to see or act on. */}
+      <TwoFactorSection />
       <SessionsSection />
+    </div>
+  );
+}
+
+function TwoFactorSection() {
+  const dispatch = useDispatch();
+  const user = useSelector((s) => s.user);
+  const [saving, setSaving] = useState(false);
+
+  const toggle = async () => {
+    const next = !user.twoFactorEnabled;
+    try {
+      setSaving(true);
+      const r = await Axios({ ...api.updateTwoFactor, data: { enabled: next } });
+      if (r.data?.success) {
+        dispatch(setUserDetails({ ...user, twoFactorEnabled: next }));
+        toast.success(next ? "Two-factor authentication enabled" : "Two-factor authentication disabled");
+      }
+    } catch (err) { axiosToastError(err); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="bg-[var(--color-surface)] border border-theme rounded-2xl shadow-sm p-6 mt-6">
+      <h2 className="font-serif text-lg font-semibold mb-1">Two-Factor Authentication</h2>
+      <p className="text-sm text-theme-muted mb-4">
+        When enabled, we'll email you a 6-digit code to enter every time you sign in — an
+        extra layer of protection if your password is ever compromised.
+      </p>
+      <label className="flex items-center gap-3 cursor-pointer w-fit">
+        <input type="checkbox" checked={!!user.twoFactorEnabled} onChange={toggle} disabled={saving} className="h-4 w-4" />
+        <span className="text-sm font-medium">
+          {user.twoFactorEnabled ? "Enabled" : "Disabled"} — {saving ? "Saving…" : (user.twoFactorEnabled ? "click to disable" : "click to enable")}
+        </span>
+      </label>
     </div>
   );
 }

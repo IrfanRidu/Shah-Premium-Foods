@@ -2,6 +2,17 @@ import jwt from "jsonwebtoken";
 import { createSession } from "./sessionManager.js";
 
 const DEFAULT_EXPIRE = "7d";
+// Section 13 (Admin Panel Security) — same admin-session-timeout
+// reasoning as generateAccessToken.js: a much shorter refresh-token
+// lifetime for ADMIN/SUPERADMIN means their session expires outright
+// (forcing a real re-login, not just a silent refresh) well within a
+// single work day, rather than persisting for a week like a regular
+// customer's. Pairs with the client-side idle-logout feature (see
+// providers/IdleLogoutProvider.jsx) — this bounds total session duration
+// regardless of activity; idle logout separately bounds duration of
+// INactivity specifically. Different failure mode, both worth having.
+const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+const ADMIN_DEFAULT_EXPIRE = process.env.ADMIN_REFRESH_TOKEN_EXPIRE || "4h";
 
 function parseDurationToMs(str) {
   const match = /^(\d+)([smhd])$/.exec(str || DEFAULT_EXPIRE);
@@ -21,7 +32,7 @@ function parseDurationToMs(str) {
 // token at once — and see generateRefreshToken's caller in
 // user.controller.js for how rotation + reuse detection use that `jti` on
 // every subsequent refresh.
-const generateRefreshToken = async (userId, mockReq) => {
+const generateRefreshToken = async (userId, mockReq, role) => {
   const secret = process.env.JWT_SECRET_REFRESH;
   if (!secret) {
     throw new Error(
@@ -29,7 +40,9 @@ const generateRefreshToken = async (userId, mockReq) => {
     );
   }
 
-  const expireStr = process.env.REFRESH_TOKEN_EXPIRE || DEFAULT_EXPIRE;
+  const expireStr = ADMIN_ROLES.has(role)
+    ? ADMIN_DEFAULT_EXPIRE
+    : (process.env.REFRESH_TOKEN_EXPIRE || DEFAULT_EXPIRE);
   const expiresAt = new Date(Date.now() + parseDurationToMs(expireStr));
   const tokenId = await createSession(userId, mockReq, expiresAt);
 

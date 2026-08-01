@@ -10,6 +10,7 @@ import {
   deletePaymentMethodController,
   updateFaqController,
   getFaqController,
+  getMyIpController,
 } from "@/server/controllers/siteSettings.controller";
 
 const ROUTES = {
@@ -21,6 +22,12 @@ const ROUTES = {
   "DELETE:/payment-method/delete": [[auth, checkPermission("settings", "edit")], deletePaymentMethodController],
   "GET:/faq":              [[], getFaqController],
   "PUT:/faq":              [[auth, checkPermission("settings", "edit")], updateFaqController],
+  // Section 13 (Admin Panel Security): gated behind the same
+  // auth+permission pair as the settings write itself, not left public —
+  // this is only ever called from the site-settings admin UI while
+  // configuring the IP whitelist (see that controller's own comment for
+  // why it's a separate, uncached endpoint).
+  "GET:/my-ip":            [[auth, checkPermission("settings", "edit")], getMyIpController],
 };
 
 // Fix 3: without this, Next.js can statically cache this route's

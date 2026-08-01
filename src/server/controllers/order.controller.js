@@ -10,6 +10,7 @@ import { resolveDeliveryCharge } from "./deliveryZone.controller.js";
 import stripe from "../config/stripe.js";
 import { createNotification } from "./notification.controller.js";
 import SiteSettingsModel from "../models/siteSettings.model.js";
+import ProcessedWebhookEventModel from "../models/processedWebhookEvent.model.js";
 import { evaluateCoupon } from "../utils/couponEligibility.js";
 
 
@@ -485,19 +486,78 @@ const getOrderProductItems = async (lineItems) => {
 };
 
 // STRIPE WEBHOOK
+//
+// Section 14 (Payment Security):
+//   - Signature verification already existed (constructEvent below) —
+//     confirmed by reading this function in full before changing anything.
+//   - Replay protection: Stripe's SDK already defaults constructEvent's
+//     timestamp tolerance to 300s (5 minutes) even when not passed
+//     explicitly, so this may already have been implicitly protected —
+//     stated honestly rather than claimed as a fix to a live hole. Made
+//     explicit below anyway: an undocumented library default the reader
+//     has to already know about isn't the same as a deliberate, visible
+//     security decision, and this is the kind of thing worth being able
+//     to see at a glance rather than trust implicitly.
+//   - Idempotency: genuinely new — see ProcessedWebhookEventModel's own
+//     comment for why this matters (Stripe explicitly documents that the
+//     same event can be delivered more than once) and why the unique
+//     index, not an application-level check, is the real enforcement.
+const WEBHOOK_TOLERANCE_SECONDS = 300;
+
 export const webhookStripeController = async (request, response) => {
   const sig = request.headers["stripe-signature"];
   let event;
   try {
-    event = stripe.webhooks.constructEvent(request.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(
+      request.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET,
+      WEBHOOK_TOLERANCE_SECONDS
+    );
   } catch (error) {
     console.error("Webhook signature verification failed:", error.message);
     return response.status(400).send(`Webhook Error: ${error.message}`);
   }
 
+  // Idempotency claim: attempt to atomically insert a record for this
+  // exact event id. A duplicate-key error (Mongo error code 11000) means
+  // some delivery — possibly this exact request retried, possibly a
+  // genuinely concurrent duplicate — already claimed it; treat that as
+  // "already handled," acknowledge it to Stripe (so it stops retrying),
+  // and stop, without running any of the order-creation logic below a
+  // second time. This is an atomic database-level guarantee, not a
+  // check-then-act race (see the model's own comment).
+  try {
+    await ProcessedWebhookEventModel.create({ eventId: event.id, eventType: event.type });
+  } catch (err) {
+    if (err.code === 11000) {
+      return response.json({ received: true, duplicate: true });
+    }
+    // Any OTHER database error here is a real failure — surface it as one
+    // (500), so Stripe retries later rather than this silently swallowing
+    // a genuine problem.
+    console.error("Webhook idempotency claim failed:", err.message);
+    return response.status(500).json({ received: false });
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object;
+      // Order verification: Stripe's own documented edge case — for
+      // asynchronous payment methods (bank transfers, some redirect-based
+      // ones), checkout.session.completed can fire with payment_status
+      // still "unpaid" (the customer finished the checkout FORM; the
+      // payment itself is still pending confirmation). This app currently
+      // only enables `payment_method_types: ["card"]` (paymentController.js),
+      // which is synchronous — payment_status is reliably known immediately
+      // — so this is defensive rather than a fix for an active hole with the
+      // methods actually enabled today, but it's the correct, cheap check
+      // regardless of that, and stays correct if payment methods are ever
+      // expanded later without anyone having to remember to add this then.
+      if (session.payment_status !== "paid") {
+        console.warn(`Webhook: checkout.session.completed for ${session.id} has payment_status="${session.payment_status}" — not fulfilling yet.`);
+        break;
+      }
       const userId = session.metadata.userId;
       const user = await UserModel.findById(userId).select("name email mobile");
       // Fix (explicit request): the order's contact mobile is the delivery

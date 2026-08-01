@@ -14,6 +14,12 @@ import toast from "react-hot-toast";
 
 export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
+  // Section 13 (Admin Panel Security): set once the server responds with
+  // `requiresTwoFactor` — switches the form below from credentials entry
+  // to code entry, for that same email.
+  const [pendingOtpEmail, setPendingOtpEmail] = useState(null);
+  const [otp, setOtp] = useState("");
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm();
   const dispatch = useDispatch();
   const router   = useRouter();
@@ -39,20 +45,77 @@ export default function LoginPage() {
     }
   }, [router]);
 
+  // Section 13 (Admin Panel Security): shared by both the direct-login
+  // path (2FA off) and the OTP-verification path (2FA on) — both end with
+  // the exact same "now actually finish signing in on the client" steps.
+  const finishLoginOnClient = async (payload) => {
+    const { accessToken, refreshToken, data: user } = payload;
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("refreshToken", refreshToken);
+    dispatch(setUserDetails(user));
+    await Promise.all([fetchCartItems(), fetchAddress()]);
+    toast.success("Welcome back!");
+    router.push("/");
+  };
+
   const onSubmit = async (data) => {
     try {
       const r = await Axios({ ...api.login, data });
       if (r.data?.success) {
-        const { accessToken, refreshToken, data: user } = r.data.data;
-        localStorage.setItem("accessToken", accessToken);
-        localStorage.setItem("refreshToken", refreshToken);
-        dispatch(setUserDetails(user));
-        await Promise.all([fetchCartItems(), fetchAddress()]);
-        toast.success("Welcome back!");
-        router.push("/");
+        if (r.data.data?.requiresTwoFactor) {
+          setPendingOtpEmail(r.data.data.email);
+          toast.success(r.data.message || "Check your email for a sign-in code");
+          return;
+        }
+        await finishLoginOnClient(r.data.data);
       }
     } catch (err) { axiosToastError(err); }
   };
+
+  const onSubmitOtp = async (e) => {
+    e.preventDefault();
+    if (!otp.trim()) return;
+    try {
+      setVerifyingOtp(true);
+      const r = await Axios({ ...api.verifyLoginOtp, data: { email: pendingOtpEmail, otp: otp.trim() } });
+      if (r.data?.success) await finishLoginOnClient(r.data.data);
+    } catch (err) { axiosToastError(err); }
+    finally { setVerifyingOtp(false); }
+  };
+
+  if (pendingOtpEmail) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-md">
+          <div className="modal-box p-8">
+            <h1 className="font-display text-3xl font-bold mb-1">Enter your code</h1>
+            <p className="text-sm text-theme-muted mb-7">
+              We emailed a 6-digit code to <span className="font-medium text-theme">{pendingOtpEmail}</span>. It expires in 10 minutes.
+            </p>
+            <form onSubmit={onSubmitOtp} className="space-y-4">
+              <input
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                autoFocus
+                className="input-field text-center text-2xl tracking-[0.5em] font-mono"
+                maxLength={6}
+              />
+              <button type="submit" disabled={verifyingOtp} className="btn-primary w-full py-2.5">
+                {verifyingOtp ? "Verifying…" : "Verify & sign in"}
+              </button>
+              <button type="button" onClick={() => { setPendingOtpEmail(null); setOtp(""); }}
+                className="w-full text-center text-sm text-theme-muted hover:text-theme-primary transition-colors">
+                Use a different account
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">

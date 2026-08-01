@@ -48,6 +48,20 @@ const siteSettingsSchema = new mongoose.Schema(
       robotsTxt: { type: String, default: "User-agent: *\nAllow: /" },
     },
     siteName: { type: String, default: "Shah Premium Foods" },
+    // Section 13 (Admin Panel Security) — admin-configurable IP
+    // whitelist. Off by default (ipWhitelistEnabled: false) — enabling
+    // this with an empty or wrong list would lock EVERY admin, including
+    // whoever's trying to configure it, out of the panel at once; the
+    // admin UI (dashboard/site-settings) requires at least one entry
+    // (typically the admin's own current IP) before allowing this to be
+    // turned on, and always shows the requester's own current IP so it's
+    // easy to add correctly. Enforced in
+    // server/middlewares/permission.js, not middleware.js — see that
+    // file's own comment for why (Edge runtime can't reach Mongoose).
+    security: {
+      ipWhitelistEnabled: { type: Boolean, default: false },
+      ipWhitelist: { type: [String], default: [] },
+    },
     // Item 7: site-wide default currency, set by the admin. Drives the
     // storefront default for anyone who hasn't personally picked a
     // different currency (see currencySlice.js), and is always what the

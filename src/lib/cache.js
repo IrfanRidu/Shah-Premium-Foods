@@ -1,3 +1,22 @@
+// Section 15 (Next.js Best Practices) — "Server-only modules": this
+// module has no Node-only APIs of its own (it's just a Map + timers), so
+// it wouldn't technically fail to bundle client-side — but a client-side
+// "cache" reusing this exact name/shape while actually holding SERVER
+// data in a Node process's memory would be meaningless if it ever
+// happened. Belt-and-suspenders: an explicit guarantee, not just relying
+// on nobody ever importing it by mistake.
+import "server-only";
+
+// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
+// time guarantee, not just convention. This has no Node-only APIs of its
+// own (it's a plain in-memory Map), so nothing would technically break by
+// bundling it client-side — but it exists specifically to cache SERVER
+// data (DB reads), and a client-side instance of it would be meaningless/
+// broken (a fresh, empty cache per browser tab, caching nothing real).
+// Belt-and-suspenders here, not a strict technical requirement like the
+// other lib/ files this same guard was added to.
+import "server-only";
+
 // ── Section 9 (Performance) — "Route cache / API cache / Redis-ready
 // architecture" ──────────────────────────────────────────────────────────
 //

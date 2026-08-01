@@ -1,3 +1,10 @@
+// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
+// time guarantee, not just convention (see lib/mongodb.js's own comment
+// for the fuller reasoning) — this file holds rate-limiting/brute-force/
+// CSRF internals that have no meaning or business being in a client
+// bundle.
+import "server-only";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Security audit (OWASP Top 10 pass): shared utilities used by
 // src/lib/apiHandler.js, which every one of the 23 API resource groups
@@ -5,6 +12,7 @@
 // surface from one integration point, rather than needing to be repeated
 // per-controller.
 // ─────────────────────────────────────────────────────────────────────────
+import { logSecurityEvent } from "@/lib/apiObservability";
 
 // ── 1. NoSQL injection + prototype pollution: input sanitization ──────────
 //
@@ -111,6 +119,13 @@ export const AUTH_RATE_LIMITS = {
   "POST:/api/user/resend-verification-otp":   { windowMs: 60 * 60 * 1000, max: 5 },
   "PUT:/api/user/forgot-password":            { windowMs: 60 * 60 * 1000, max: 5 },
   "PUT:/api/user/verify-forgot-password-otp": { windowMs: 15 * 60 * 1000, max: 10 },
+  // Section 13 (Admin Panel Security): a 6-digit code is only ~1M
+  // possibilities — without a tight limit here specifically, someone who
+  // already has a valid password (or is testing their own account) could
+  // attempt to brute-force the emailed code within its 10-minute window.
+  // Matches verify-forgot-password-otp's own limit exactly — both gate
+  // equally sensitive account-access actions.
+  "POST:/api/user/verify-login-otp":          { windowMs: 15 * 60 * 1000, max: 10 },
   "PUT:/api/user/reset-password":             { windowMs: 60 * 60 * 1000, max: 5 },
   "POST:/api/user/refresh-token":             { windowMs: 15 * 60 * 1000, max: 30 },
 
@@ -197,6 +212,7 @@ export function recordFailedLogin(email, ip) {
   const now = Date.now();
 
   const acct = accountFailures.get(email) || { count: 0, lockedUntil: 0, lastFailureAt: now };
+  const wasAccountLocked = acct.lockedUntil > now;
   acct.count += 1;
   acct.lastFailureAt = now;
   if (acct.count >= LOCKOUT_THRESHOLD) {
@@ -206,12 +222,41 @@ export function recordFailedLogin(email, ip) {
   accountFailures.set(email, acct);
 
   const ipRec = ipFailures.get(ip) || { emails: new Set(), blockedUntil: 0, lastFailureAt: now };
+  const wasIpBlocked = ipRec.blockedUntil > now;
   ipRec.emails.add(email);
   ipRec.lastFailureAt = now;
   if (ipRec.emails.size >= IP_DISTINCT_ACCOUNT_THRESHOLD) {
     ipRec.blockedUntil = now + IP_BLOCK_MS;
   }
   ipFailures.set(ip, ipRec);
+
+  // Section 11 (Logging) — Security log. Path is hardcoded rather than a
+  // parameter: this function has exactly one call site
+  // (user.controller.js's login flow) — if it's ever reused for a
+  // different auth endpoint, that's the point to turn this into a real
+  // parameter, not before.
+  const LOGIN_PATH = "/api/user/login";
+  // Every failed attempt, at the routine `info` level — useful on its own
+  // for spotting a slow, low-and-slow attempt that never quite crosses
+  // the lockout threshold, which the two events below alone would miss
+  // entirely.
+  logSecurityEvent({ type: "login_failed", severity: "info", ip, email, path: LOGIN_PATH, method: "POST" });
+  // Distinct, louder events exactly at the moment a lockout/block newly
+  // triggers (comparing before vs. after this specific call) — not on
+  // every subsequent failed attempt while already locked/blocked, which
+  // would just be repeating the same fact.
+  if (acct.lockedUntil > now && !wasAccountLocked) {
+    logSecurityEvent({
+      type: "account_locked", severity: "warn", ip, email, path: LOGIN_PATH, method: "POST",
+      details: { failureCount: acct.count, retryAfterMs: acct.lockedUntil - now },
+    });
+  }
+  if (ipRec.blockedUntil > now && !wasIpBlocked) {
+    logSecurityEvent({
+      type: "ip_blocked", severity: "warn", ip, path: LOGIN_PATH, method: "POST",
+      details: { distinctAccountsTargeted: ipRec.emails.size },
+    });
+  }
 
   return {
     accountLocked: acct.lockedUntil > now,
@@ -257,6 +302,7 @@ export function getClientIpFromPlainHeaders(headers = {}) {
 // — it cannot be forged by a script running on a *different* origin, which
 // is exactly the CSRF scenario this defends against. GET/HEAD/OPTIONS are
 // exempt since they aren't supposed to mutate state.
+let warnedMissingSiteUrl = false; // Section 11 (Logging): log this misconfiguration once per process, not once per request
 export function isSameOriginRequest(nextRequest) {
   const method = nextRequest.method.toUpperCase();
   if (["GET", "HEAD", "OPTIONS"].includes(method)) return true;
@@ -265,7 +311,24 @@ export function isSameOriginRequest(nextRequest) {
   // If the admin hasn't set this, we can't safely compare — don't false-
   // positive-block every request in an incompletely-configured deployment;
   // SETUP.md already documents this env var as required.
-  if (!allowedOrigin) return true;
+  if (!allowedOrigin) {
+    // Section 11 (Logging): this is a real, actionable misconfiguration —
+    // CSRF protection is silently doing nothing at all — that previously
+    // had zero visibility anywhere. Logged once per process (a module-level
+    // flag, not persisted — a restart logs it again, which is fine/correct,
+    // since the condition genuinely still holds) rather than on every
+    // single non-GET request, which would otherwise flood the security log
+    // with thousands of identical entries in a misconfigured deployment.
+    if (!warnedMissingSiteUrl) {
+      warnedMissingSiteUrl = true;
+      logSecurityEvent({
+        type: "csrf_protection_disabled",
+        severity: "warn",
+        details: { reason: "NEXT_PUBLIC_SITE_URL is not set — see .env.example" },
+      });
+    }
+    return true;
+  }
 
   const origin = nextRequest.headers.get("origin");
   const referer = nextRequest.headers.get("referer");

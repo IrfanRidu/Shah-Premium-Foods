@@ -5,11 +5,12 @@ import { useSelector } from "react-redux";
 import {
   FaUser, FaBox, FaMapMarkerAlt, FaCog, FaStore, FaClipboardList,
   FaUsers, FaUpload, FaBolt, FaTag, FaWarehouse, FaChartLine, FaUserShield,
-  FaTruck, FaFileAlt, FaHeadset, FaUserTie,
+  FaTruck, FaFileAlt, FaHeadset, FaUserTie, FaHistory,
 } from "react-icons/fa";
 import { isAdmin, isSuperAdmin } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
 import SafeImage from "@/components/SafeImage";
+import IdleLogoutProvider from "@/components/IdleLogoutProvider";
 
 const USER_LINKS = [
   { href: "/dashboard/profile",  label: "My Profile",  icon: FaUser },
@@ -35,6 +36,12 @@ const ADMIN_LINKS = [
   { href: "/dashboard/admin-users",    label: "Customers",      icon: FaUsers,        module: "customers",  action: "view" },
   { href: "/dashboard/analytics",      label: "Analytics",      icon: FaChartLine,    module: "analytics",  action: "view" },
   { href: "/dashboard/site-settings",  label: "Site Settings",  icon: FaCog,          module: "settings",   action: "view" },
+  // Section 13 (Admin Panel Security): uses the existing superAdminOnly
+  // flag (see canSee() below) rather than module/action — matches the
+  // route itself, which is gated by superAdminOnly in permission.js, not
+  // the general checkPermission(module, action) system every other link
+  // here uses.
+  { href: "/dashboard/audit-log",      label: "Audit Log",      icon: FaHistory,      superAdminOnly: true },
   { href: "/dashboard/roles",          label: "Roles & Staff",  icon: FaUserShield,   module: "roles",      action: "view", superAdminOnly: true },
 ];
 
@@ -65,6 +72,7 @@ export default function DashboardLayout({ children }) {
   const showAdminSection = isAdmin(user.role) || visibleAdminLinks.length > 0;
 
   return (
+    <IdleLogoutProvider>
     <div className="container mx-auto px-4 py-8">
       {/* Fix 4: on mobile the sidebar (and its notification bell) is
           hidden, so surface the bell here too. */}
@@ -108,5 +116,6 @@ export default function DashboardLayout({ children }) {
         <main className="flex-1 min-w-0">{children}</main>
       </div>
     </div>
+    </IdleLogoutProvider>
   );
 }

@@ -1,3 +1,15 @@
+// Section 15 (Next.js Best Practices) — "Server-only modules": the
+// central request-handling pipeline for the entire API surface,
+// transitively pulling in Mongoose/Winston/every controller — about as
+// server-only as a module in this app gets.
+import "server-only";
+// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
+// time guarantee, not just convention. The whole point of this file is
+// gluing Mongoose-backed controllers to Next.js Route Handlers — it has
+// no meaning outside a Node.js server context (and never runs on Edge:
+// every route using it depends on Mongoose, which isn't Edge-compatible —
+// see this file's own Edge Runtime notes elsewhere in this codebase).
+import "server-only";
 import { NextResponse } from "next/server";
 import connectDb from "@/lib/mongodb";
 import {
@@ -13,6 +25,9 @@ import {
   generateRequestId,
   resolveCorrelationId,
   logRequest,
+  logSecurityEvent,
+  logAuditEvent,
+  logError,
   withTimeout,
   TimeoutError,
   CACHE_PRIVATE_NO_STORE,
@@ -31,7 +46,18 @@ function parseCookies(cookieHeader) {
 }
 
 // ── Build a mock Express-like request from a Next.js Request ──────────────
-async function buildMockRequest(nextRequest, matchedParams = {}) {
+// Section 11 (Logging) — `sharedContext` is a plain object created by
+// createNextHandler BEFORE any of this runs, and the mock request is built
+// ON TOP OF it (Object.assign onto the same reference) rather than as a
+// brand new object literal. Reason: auth.js's middleware later does
+// `req.userId = decoded.id` — mutating whatever object it was handed. By
+// making that object the SAME one createNextHandler already holds a
+// reference to, `sharedContext.userId`/`.userRole` are visible after
+// handleRequest() returns, for the audit log, WITHOUT changing the shape
+// of handleRequest's own return value at any of its several early-return
+// points (CSRF rejection, rate limit, DB failure, no route, file error,
+// middleware-chain-stop) — none of those needed to change at all.
+async function buildMockRequest(nextRequest, matchedParams = {}, sharedContext = {}) {
   const url = new URL(nextRequest.url);
   const contentType = nextRequest.headers.get("content-type") || "";
 
@@ -96,7 +122,7 @@ async function buildMockRequest(nextRequest, matchedParams = {}) {
   const query = {};
   url.searchParams.forEach((v, k) => { query[k] = v; });
 
-  return {
+  return Object.assign(sharedContext, {
     method: nextRequest.method,
     url: nextRequest.url,
     // These get populated by auth / permission middlewares:
@@ -110,7 +136,7 @@ async function buildMockRequest(nextRequest, matchedParams = {}) {
     fileError,
     query,
     params: { ...matchedParams },
-  };
+  });
 }
 
 // ── Build a mock Express-like response ────────────────────────────────────
@@ -245,7 +271,7 @@ function findRoute(method, path, routes) {
 //   const h = (req, ctx) => createNextHandler(req, ctx.params, ROUTES);
 //   export { h as GET, h as POST, h as PUT, h as DELETE };
 //
-async function handleRequest(nextRequest, params, routes) {
+async function handleRequest(nextRequest, params, routes, sharedContext) {
   // Reconstruct the sub-path from Next.js catch-all segments
   // e.g.  params = { segments: ["banner","add"] }  →  path = "/banner/add"
   const segments = params?.segments || [];
@@ -260,9 +286,22 @@ async function handleRequest(nextRequest, params, routes) {
   // config to the other's identically-named route. The full pathname is
   // globally unique by construction, closing that off entirely.
   const routeKey = `${method}:${nextRequest.nextUrl.pathname}`;
+  // Section 11 (Logging): moved above the CSRF check (was previously
+  // declared down in the Rate limiting section below) — the CSRF
+  // rejection path now needs it for security-event logging, and it's a
+  // pure, side-effect-free read of request headers, safe to compute this
+  // much earlier with no behavior change to anything that already used it.
+  const ip = getClientIp(nextRequest);
 
   // ── CSRF: verify Origin/Referer before doing any work at all ──────────
   if (!isSameOriginRequest(nextRequest)) {
+    logSecurityEvent({
+      type: "csrf_rejected",
+      severity: "warn",
+      ip,
+      path: nextRequest.nextUrl.pathname,
+      method,
+    });
     return NextResponse.json(
       { message: "Request blocked: origin verification failed.", error: true, success: false },
       { status: 403 }
@@ -273,12 +312,18 @@ async function handleRequest(nextRequest, params, routes) {
   // Auth-sensitive routes get their own tight per-IP-per-route bucket;
   // everything else shares one generous per-IP bucket. Checked before the
   // DB connection so a flood doesn't even cost a connection-pool slot.
-  const ip = getClientIp(nextRequest);
   const authLimit = AUTH_RATE_LIMITS[routeKey];
   const { windowMs, max } = authLimit || DEFAULT_RATE_LIMIT;
   const bucketKey = authLimit ? `${ip}:${routeKey}` : `${ip}:default`;
   const { allowed, resetAt } = checkRateLimit(bucketKey, windowMs, max);
   if (!allowed) {
+    logSecurityEvent({
+      type: "rate_limit_exceeded",
+      severity: authLimit ? "warn" : "info", // an auth-sensitive route tripping its tight limit is more notable than the generous default bucket
+      ip,
+      path: nextRequest.nextUrl.pathname,
+      method,
+    });
     return NextResponse.json(
       {
         message: "Too many requests. Please try again shortly.",
@@ -309,7 +354,7 @@ async function handleRequest(nextRequest, params, routes) {
   }
 
   const [middlewares, controller] = match.handler;
-  const mockReq = await buildMockRequest(nextRequest, match.params);
+  const mockReq = await buildMockRequest(nextRequest, match.params, sharedContext);
 
   // File upload security: reject before any middleware/controller sees
   // the request at all if the uploaded file failed validation (wrong/
@@ -423,11 +468,18 @@ export async function createNextHandler(nextRequest, params, routes) {
   const startedAt = Date.now();
   const method = nextRequest.method;
   const path = nextRequest.nextUrl.pathname;
+  // Section 11 (Logging): created here, mutated in place by
+  // buildMockRequest (Object.assign onto this same object — see that
+  // function's own comment) and later by auth.js's middleware
+  // (`req.userId = decoded.id`), so `.userId`/`.userRole` are readable
+  // down here for the audit log even though the mock request object
+  // itself only otherwise lives inside handleRequest()'s scope.
+  const sharedContext = {};
 
   let response;
   try {
     response = await withTimeout(
-      handleRequest(nextRequest, params, routes),
+      handleRequest(nextRequest, params, routes, sharedContext),
       REQUEST_TIMEOUT_MS,
       `${method} ${path}`
     );
@@ -444,6 +496,12 @@ export async function createNextHandler(nextRequest, params, routes) {
       // conversation can look it up in server logs.
       console.error(`[unhandled] ${method} ${path} (requestId=${requestId})`, err);
     }
+    // Section 11 (Logging): in addition to the console.error above (kept
+    // — Vercel needs stdout regardless of what else is wired up), route
+    // the same error through the dedicated Winston error logger, so it
+    // gets daily rotation when self-hosted (see lib/logger.js) and is
+    // consistently structured alongside every other log category.
+    logError(err, { requestId, correlationId, method, path, isTimeout });
     response = NextResponse.json(
       {
         message: isTimeout
@@ -490,6 +548,28 @@ export async function createNextHandler(nextRequest, params, routes) {
   // already detect which version answered them, and the response shape
   // itself doesn't need to change to add this.
   response.headers.set("X-API-Version", API_VERSION);
+
+  // Section 11 (Logging) — Audit log: "who did what, when," for
+  // authenticated, mutating (non-GET/HEAD/OPTIONS), SUCCESSFUL (2xx)
+  // requests. A failed mutation attempt didn't actually change anything —
+  // that's a security-log concern if it looks suspicious (already covered
+  // separately above for CSRF/rate-limit rejections), not an audit-trail
+  // entry. `sharedContext.userId` is only populated when an `auth`
+  // middleware ran for this route and succeeded (see buildMockRequest's
+  // own comment for how it gets here) — routes with no auth middleware,
+  // or where auth failed, simply have nothing to audit-attribute here.
+  const NON_MUTATING_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+  if (sharedContext.userId && !NON_MUTATING_METHODS.has(method) && response.status >= 200 && response.status < 300) {
+    await logAuditEvent({
+      userId: sharedContext.userId,
+      userRole: sharedContext.userRole,
+      method,
+      path,
+      status: response.status,
+      body: sharedContext.body,
+      ip: getClientIp(nextRequest),
+    });
+  }
 
   logRequest({
     requestId,
