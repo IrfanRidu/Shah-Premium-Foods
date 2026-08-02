@@ -241,12 +241,21 @@ export default function GlobalProvider({ children }) {
       // kind gets a chance to trigger a write-back through
       // persistMiddleware.
       const persisted = loadPersistedState();
-      const savedTheme      = persisted?.siteSettings?.theme?.activeTheme;
-      const savedLanguage   = persisted?.siteSettings?.language?.activeLanguage;
+      const savedTheme       = persisted?.siteSettings?.theme?.activeTheme;
+      const savedThemeOverride    = persisted?.siteSettings?.theme?.isOverride;
+      const savedLanguage    = persisted?.siteSettings?.language?.activeLanguage;
+      const savedLanguageOverride = persisted?.siteSettings?.language?.isOverride;
       const savedCurrency   = persisted?.currency?.selected;
       const savedIsOverride = persisted?.currency?.isUserOverride;
-      if (savedTheme)    dispatch(setActiveTheme(savedTheme));
-      if (savedLanguage) dispatch(setActiveLanguage(savedLanguage));
+      // Only restore theme/language as a personal override if it genuinely
+      // was one (isOverride was true when last saved) — otherwise it was
+      // just a cached copy of whatever the site default happened to be on
+      // an earlier visit, and should keep tracking the CURRENT site default
+      // via fetchSiteSettings() below, not get stuck on a stale cached
+      // value. Same reasoning as the currency restore just below, which
+      // already worked this way.
+      if (savedThemeOverride && savedTheme)       dispatch(setActiveTheme(savedTheme));
+      if (savedLanguageOverride && savedLanguage) dispatch(setActiveLanguage(savedLanguage));
       // Item 7: only restore this as a personal override if it really was
       // one — otherwise leave `selected` alone and let fetchSiteSettings()
       // just below set it to whatever the admin's current base currency is.

@@ -68,7 +68,22 @@ export const getAllZonesController = async (req, res) => {
 // ADMIN: create zone
 export const createZoneController = async (req, res) => {
   try {
-    const { name, matchCities, charge, freeDeliveryThreshold, estimatedDays, isDefault, displayOrder } = req.body;
+    // Batch 20 QA pass — confirmed "stale whitelist" bug: the admin form
+    // (dashboard/delivery-zones/page.jsx) has a real "Active" checkbox that
+    // the admin can uncheck when CREATING a zone, and its submit payload
+    // genuinely includes isActive either way — but this destructure never
+    // read it, so createZoneController always fell through to the schema
+    // default (true) regardless of what the admin chose. Unlike the other
+    // "candidate missing field" flags checked in this same pass (coupon
+    // usedCount/usedBy, productRequest status/adminNote, customerCare
+    // status/priority/assignedTo, address status, callCenterAgent's HR
+    // fields), which all turned out to be correct-by-design (system-managed
+    // fields no create form actually offers), this one is a real,
+    // user-visible bug: updateZoneController already handles isActive
+    // correctly (it spreads the whole body through), so editing an
+    // existing zone's active state always worked — only creating a new
+    // zone as inactive from the start was silently ignored.
+    const { name, matchCities, charge, freeDeliveryThreshold, estimatedDays, isDefault, isActive, displayOrder } = req.body;
     if (!name || charge === undefined) {
       return res.status(400).json({ success: false, error: true, message: "Name and charge are required" });
     }
@@ -81,6 +96,7 @@ export const createZoneController = async (req, res) => {
       freeDeliveryThreshold: Number(freeDeliveryThreshold) || 0,
       estimatedDays: estimatedDays || "",
       isDefault: !!isDefault,
+      isActive: isActive === false ? false : true,
       displayOrder: Number(displayOrder) || 0,
     });
     await zone.save();

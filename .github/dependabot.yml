@@ -1,0 +1,65 @@
+version: 2
+updates:
+  # ── npm (application dependencies) ──────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    versioning-strategy: increase-if-necessary
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+    groups:
+      # Patch/minor bumps for unrelated packages are low-risk and noisy one
+      # PR at a time — batch them. Majors are excluded from this group on
+      # purpose (see update-types below) so they always surface as their
+      # own individually-reviewable PR instead of hiding inside a batch.
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      dev-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      # Security fixes always get their own ungrouped PR at any bump size —
+      # never batched, so nothing sits waiting behind an unrelated package
+      # in the same group.
+    ignore:
+      # Next.js major version bumps touch the App Router / middleware /
+      # config surface broadly enough (see this project's own next.config.mjs
+      # and middleware.js) to always want a deliberate, tested upgrade
+      # rather than an automatic PR — same reasoning applied manually in
+      # Batch 20's dependency review. Dependabot will still open PRs for
+      # minor/patch Next.js releases (which are usually safe, including
+      # security patches), just not for majors.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mongoose"
+        update-types: ["version-update:semver-major"]
+
+  # ── GitHub Actions (if/when CI workflows are added under .github/workflows) ──
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"

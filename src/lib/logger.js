@@ -3,11 +3,6 @@
 // would break or needlessly bloat a client bundle; this guarantees that
 // at build time rather than by convention.
 import "server-only";
-// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
-// time guarantee, not just convention. Winston/winston-daily-rotate-file
-// are Node-only packages (fs, streams) that would break or needlessly
-// bloat a client bundle if ever accidentally pulled in.
-import "server-only";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
 

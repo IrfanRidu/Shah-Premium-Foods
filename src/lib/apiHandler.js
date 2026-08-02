@@ -1,14 +1,11 @@
 // Section 15 (Next.js Best Practices) — "Server-only modules": the
 // central request-handling pipeline for the entire API surface,
 // transitively pulling in Mongoose/Winston/every controller — about as
-// server-only as a module in this app gets.
-import "server-only";
-// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
-// time guarantee, not just convention. The whole point of this file is
-// gluing Mongoose-backed controllers to Next.js Route Handlers — it has
-// no meaning outside a Node.js server context (and never runs on Edge:
-// every route using it depends on Mongoose, which isn't Edge-compatible —
-// see this file's own Edge Runtime notes elsewhere in this codebase).
+// server-only as a module in this app gets. The whole point of this file
+// is gluing Mongoose-backed controllers to Next.js Route Handlers — it
+// has no meaning outside a Node.js server context, and never runs on
+// Edge (every route using it depends on Mongoose, which isn't
+// Edge-compatible — see this file's own Edge Runtime notes elsewhere).
 import "server-only";
 import { NextResponse } from "next/server";
 import connectDb from "@/lib/mongodb";

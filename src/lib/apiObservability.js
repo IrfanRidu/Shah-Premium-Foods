@@ -1,13 +1,8 @@
 // Section 15 (Next.js Best Practices) — "Server-only modules": this file
-// now imports connectDb/AuditLogModel (Section 13) on top of Node's
-// `crypto` module (a different, incompatible API shape from the Web
-// Crypto API browsers/Edge expose under the same global name) — multiple
+// imports connectDb/AuditLogModel (Section 13) on top of Node's `crypto`
+// module (a different, incompatible API shape from the Web Crypto API
+// browsers/Edge expose under the same global name) — multiple
 // independent reasons this can never be client-bundled correctly.
-import "server-only";
-// Section 15 (Next.js Best Practices) — "Server-only modules": compile-
-// time guarantee, not just convention. Uses Node's `crypto` module
-// (different API shape than the client-side Web Crypto API) and, since
-// Section 13, imports the Mongoose-backed AuditLogModel directly.
 import "server-only";
 import crypto from "crypto";
 import { requestLogger, securityLogger, auditLogger, errorLogger } from "@/lib/logger";

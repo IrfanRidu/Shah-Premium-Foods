@@ -1,5 +1,282 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 20 (in progress) — Theme/language persistence bug (real fix) + fresh full audit + Sections 16/18/19/20
+
+User reported (again): theme/language reverts to default after a refresh.
+Re-verified from scratch rather than trusting Batch 15's currency fix to
+have covered it — it hadn't, fully. Root cause traced end-to-end through
+every file in the chain (slice → middleware → store → GlobalProvider → UI)
+before writing any fix, and cross-checked against currencySlice.js (which
+does NOT have this bug) to confirm the diagnosis by direct comparison, not
+guesswork.
+
+**Root cause**: `siteSettingsSlice.js`'s `setSiteSettings()` only preserved
+a user's personal theme/language choice when `state.loaded === true`. But
+`loaded` is only ever set `true` by `setSiteSettings` itself — never by the
+restore actions (`setActiveTheme`/`setActiveLanguage`). Redux state always
+starts fresh on a page load (see store.js), so the FIRST `setSiteSettings`
+call on every single page load/refresh always saw `loaded === false`,
+regardless of whether a restore had already run moments earlier in the same
+effect — silently overwriting the just-restored choice with the server
+default, every time. Fix 44's own comment described the intended behavior
+correctly but the implementation never actually achieved it outside of
+later calls in the same session (e.g. the 30s poll), which is why it kept
+looking fixed in each individual review pass without actually being fixed
+for the case that matters (a fresh refresh).
+
+**Fix**: added `theme.isOverride` / `language.isOverride`, set atomically
+by `setActiveTheme`/`setActiveLanguage` themselves — mirroring
+`currencySlice.js`'s already-proven `isUserOverride`/`setSelectedCurrency`
+pattern exactly, which doesn't have this bug for the same structural
+reason. `setSiteSettings()` now checks these instead of `loaded`.
+Also updated `GlobalProvider.jsx`'s restore step to only treat a persisted
+value as a genuine override when `isOverride` was also true when saved
+(mirroring currency's `savedIsOverride` check) — without this, a value
+that was merely cached from an earlier visit's site default (never
+personally chosen) would get incorrectly "stuck" and stop tracking a later
+admin-side default change. This second part isn't the reported bug, but is
+the same bug class and was verified as a real gap via a regression-style
+simulation before shipping the fix (see below) — better to close it now
+than have it surface as its own confusing report later.
+
+**Verified, not just reasoned about**: wrote a standalone simulation
+(`build-check/verify_theme_fix.js`) that copies the exact reducer logic and
+walks through both (1) the exact reported bug — pick a theme, refresh,
+confirm it survives the post-refresh fetchSiteSettings() call — and (2) a
+regression check that a visitor who never personally chose anything still
+correctly tracks a live site-default change rather than getting stuck on a
+stale cached value. All 6 assertions pass. Also re-ran the full static
+syntax + import/export checkers after the change (still 225 files, 0/0) and
+grepped every consumer of `siteSettings.theme`/`.language` in the codebase
+to confirm nothing else assumed the old exact object shape (admin form
+explicitly cherry-picks named fields on both read and write, so the new
+`isOverride` key is harmless there).
+
+Files touched: `src/store/siteSettingsSlice.js`, `src/providers/GlobalProvider.jsx`,
+`src/components/PreferenceSelector.jsx` (comment correction only).
+
+**Fresh full QA pass (this batch, continued):**
+
+- Fixed a real info-disclosure/logging-hygiene gap in `sendEmail.js`: the
+  no-API-key dev fallback had no production guard, so a misconfigured
+  deployment would silently log sensitive email content (e.g. password
+  reset links) while reporting fake success. Now fails loudly through the
+  structured logger in production; local dev convenience unchanged.
+- Found and removed a duplicated `import "server-only"` (each with its own
+  near-identical explanatory comment, from two different batches not
+  checking for the existing guard) in **4 files**: `lib/logger.js`,
+  `lib/cache.js`, `lib/apiHandler.js`, `lib/apiObservability.js`.
+  Confirmed via `grep -c` across every server-only file that no others had
+  this issue after the fix.
+- Verified the apparent `server/config/connectDb.js` vs `lib/mongodb.js`
+  "duplication" is intentional, not a bug: `lib/mongodb.js` has connection
+  caching/retry-with-backoff (needed for Next.js's request-scoped module
+  execution to avoid exhausting MongoDB connections) and imports
+  `server-only`; `connectDb.js` is a deliberately simpler one-shot
+  connector used ONLY by the standalone CLI seed script, which needs to
+  avoid the `server-only` build-tool dependency since it runs via plain
+  `node`, outside Next's bundler. Left as-is.
+- **Finished the "~18 lower-traffic controllers never audited for the
+  stale-whitelist pattern" gap** noted in the older batch history (role,
+  barcode, subcategory, inventory, callLog, notification,
+  analyticsSettings, siteSettings, activity, coupon, callCenterAgent,
+  hrPayroll, productRequest, customerCare, category, cart, deliveryZone,
+  address). Built a heuristic scanner to find candidates, but — learning
+  from this same tool producing false positives earlier in this batch —
+  treated every flag as unverified until manually checked against the
+  actual controller code and, where relevant, the admin frontend form.
+  Result: **one confirmed real bug, seventeen false positives** (which is
+  itself worth recording so a future pass doesn't re-flag the same
+  non-issues):
+  - **REAL BUG, FIXED**: `deliveryZone.controller.js`'s
+    `createZoneController` silently dropped `isActive` — the admin form
+    (`dashboard/delivery-zones/page.jsx`) has a real, wired-up "Active"
+    checkbox the admin can uncheck when *creating* a zone, and the
+    submitted payload genuinely includes it either way, but the create
+    controller never read it from `req.body`, so a new zone was always
+    forced active regardless of the admin's choice. `updateZoneController`
+    already handled this correctly (spreads the full body through), so
+    only zone *creation* was affected, not editing. Fixed by adding
+    `isActive` to the destructure and constructor, matching the existing
+    `isDefault` pattern.
+  - False positives, confirmed correct-by-design after manual review:
+    `siteSettings`/`analyticsSettings` (tool artifacts — a 4-sub-schema
+    file where the tool read the wrong sub-schema, and a singleton
+    updated via field-by-field assignment rather than the constructor
+    literal the tool searched for); `callCenterAgent`'s 5 "missing" HR
+    fields (the quick-add form deliberately doesn't collect them — full
+    HR onboarding is a separate `hrPayroll` screen, which itself uses a
+    named, deliberately-scoped whitelist constant
+    `EMPLOYEE_EDITABLE_FIELDS` that already covers all of them, and
+    deliberately excludes `userId`/`isCallCenterAgent` for a documented
+    OWASP A08 mass-assignment reason); `callLog` (correct two-phase
+    initiated/outcome workflow — outcome fields don't exist yet at call
+    start); `notification`'s `relatedId` and `category`'s `translations`
+    (both tool false negatives — a shorthand-property parsing bug in the
+    heuristic script itself; both fields were already correctly present);
+    `coupon`'s `usedCount`/`usedBy` (system counters, updated via a
+    separate `markCouponUsedController`); `productRequest`'s
+    `status`/`adminNote` and `customerCare`'s
+    `status`/`priority`/`assignedTo` (correctly admin-only, would be a
+    privilege issue if a customer-facing submission could set them);
+    `address`'s `status` (schema default `true` is exactly right for a
+    newly added address); `inventory`/`barcode`'s `reference` (correctly
+    populated by `order.controller.js`'s order-triggered inventory
+    adjustments, where a reference is semantically meaningful — manual
+    admin stock adjustments have no order to reference, and the admin
+    form doesn't offer that input either); `hrPayroll` (initially
+    misflagged as "no create call found" — it uses a named helper
+    function, `pickEmployeeFields()`, not an inline object literal, which
+    the tool's regex didn't match).
+
+Files touched (this QA pass): `src/server/config/sendEmail.js`,
+`src/lib/logger.js`, `src/lib/cache.js`, `src/lib/apiHandler.js`,
+`src/lib/apiObservability.js`, `src/server/controllers/deliveryZone.controller.js`.
+
+**Next.js best practices (Section 16) — verified, not redone.** Batch 19
+already did real work here (Section 15 in its own numbering). Spot-checked
+rather than re-auditing from scratch: confirmed all 6 of the
+"highest-leverage shared modules" genuinely have `server-only` guards
+(2 already known from the duplicate-import fix above, the other 4 —
+`mongodb.js`/`security.js` — confirmed directly); grepped every `"use
+client"` file for any non-`NEXT_PUBLIC_` env var reference (zero found —
+no server secret is ever reachable from a client component); confirmed
+`middleware.js` genuinely does no auth/access-control (headers only,
+matters for the Next.js CVE discussion below). One honest finding, not
+acted on: only 3 of 39 pages are true Server Components (the ones Batch 16
+converted); the homepage (`app/page.jsx`) — arguably the single highest-
+value RSC target, given it's the highest-traffic, most SEO-relevant page —
+is still fully client-rendered with client-side data fetching for every
+product row. Deliberately did NOT attempt converting it in this pass: it's
+a substantially more complex component than the 3 pages already converted,
+and Batch 18's own experience shows even that simpler conversion shipped a
+real bug (ObjectId serialization) that only surfaced from an actual `npm
+run dev` — something this sandbox still can't do. Documented as a specific,
+actionable recommendation in the final report instead of a blind attempt.
+
+**Production readiness (Section 18):**
+- Created `.github/dependabot.yml` (didn't exist before) — npm + github-
+  actions ecosystems, weekly, grouped minor/patch to reduce noise, majors
+  excluded for next/react/react-dom/mongoose so those always surface as
+  their own reviewable PR. Validated with a Python YAML parse before
+  trusting it.
+- Vercel deployment readiness: already covered in earlier batches (old
+  Batch 9) — not re-verified line-by-line in this pass given time spent on
+  higher-value items below, but nothing found in this pass's QA work
+  contradicts it.
+
+**Dependencies (Section 19) — the big one this batch, via web_search
+since this sandbox still has no npm registry access:**
+
+- **Next.js 14.x is EOL (Oct 26, 2025) and now permanently unpatched.**
+  The locked version here, 14.2.35, is genuinely the final 14.x release
+  (Dec 11, 2025) — but Vercel's May 2026 coordinated security release (13
+  advisories: middleware/proxy bypass, DoS, SSRF, cache poisoning, XSS)
+  explicitly excluded 13.x/14.x from receiving any patch. Checked whether
+  this app is actually exposed to the specific mechanism those advisories
+  describe (middleware-enforced auth bypass) before deciding how urgently
+  to frame this: confirmed `middleware.js` never gates access to anything
+  (header injection only — CSP nonce, X-Robots-Tag), and every real
+  authorization check happens server-side in `apiHandler.js` on each API
+  call, so the specific "prefetch bypasses middleware auth" mechanism
+  doesn't apply to how this app is actually built. That does NOT make the
+  EOL status a non-issue — other advisories in the same bundle aren't
+  scoped to middleware auth, and running a permanently-unpatched framework
+  version is a forward-looking risk regardless of what's known today.
+  Did not blindly bump to 15.x/16.x: that's a major-version migration with
+  real breaking changes (App Router behavior, Turbopack defaults in 16,
+  Node 20+ minimum, React 19) that this sandbox cannot test, and this
+  project's own established practice throughout its history has
+  consistently been to not ship untestable rewrites. Synced package.json's
+  declared range to `^14.2.35` (matches the already-tested lockfile exactly
+  — zero new risk) and documented the full upgrade path clearly in the
+  final report as a recommended, deliberate follow-up.
+
+- **multer: found genuinely vulnerable AND genuinely unused — removed
+  entirely rather than upgraded.** The locked version (1.4.5-lts.1, matching
+  package.json's declared range) has three real CVEs, the worst a CVSS 8.7
+  unauthenticated DoS where one malformed upload request crashes the whole
+  Node process (CVE-2025-48997), fixed only in 2.0.1+. But tracing actual
+  usage found `src/server/middlewares/multer.js` was already dead code —
+  confirmed independently (not just trusting its own comment) via grep in
+  both directions: nothing imports it for real, only a comment in
+  `apiHandler.js` mentions it explanatorily. Real upload parsing happens
+  via native `Request.formData()` directly in `apiHandler.js`. Since
+  removing an unused dependency is strictly lower-risk than upgrading a
+  live one (and this project's own file already documented it as legacy
+  Express-era leftover), deleted `middlewares/multer.js` and removed
+  `multer` from `package.json` entirely — closes the CVE exposure and the
+  "remove unused packages" ask in one safe move. Also found
+  `middlewares/admin.js` in the same directory was ALSO dead code (a
+  pre-RBAC Express-style admin check, fully superseded by the
+  `permission.js` module actually wired into all 20+ route handlers) —
+  deleted too.
+
+- **mongoose: confirmed NOT exposed to a real, relevant CVE.** A `$where`-
+  operator NoSQL injection issue (fixed in 8.9.5+) exists in older 8.x —
+  package.json's stale declared range (`^8.8.1`) would technically allow a
+  vulnerable resolve, but the actual locked/tested version is 8.24.1,
+  well above the fix. Synced the declared range to match.
+
+- **@sentry/nextjs: 2 major versions behind (declared 8.42.0; latest is
+  10.x) — documented, not touched.** Real breaking changes exist between
+  8→9→10 per Sentry's own migration guides (removed APIs, Hub→Scope model
+  change). Left as a flagged, deliberate follow-up rather than a blind
+  major bump, same reasoning as Next.js above.
+
+- **bcryptjs: checked, no issue found.** Actively maintained, no
+  deprecation or CVE surfaced. No action needed.
+
+- **Systematic package.json ↔ package-lock.json comparison** (not just
+  the handful of packages individually researched above): wrote a script
+  to diff every declared range against its actual locked version. Found
+  package.json's ranges were broadly stale relative to what's actually
+  locked and already battle-tested (per Batch 18's real `npm run dev`
+  session) — 19 packages synced to match their tested locked version
+  exactly (`@reduxjs/toolkit`, `axios`, `cloudinary`, `dotenv`, `jsbarcode`,
+  `jsonwebtoken`, `react-hook-form`, `react-hot-toast`, `react-icons`,
+  `react-redux`, `recharts`, `resend`, `stripe`, `@types/node`,
+  `@types/react`, `autoprefixer`, `postcss`, `tailwindcss`, plus
+  mongoose/next above). This is zero-risk by construction — it doesn't
+  change what's actually installed, only corrects the manifest to match
+  what's already proven to work, so a future `npm install` without the
+  lockfile (or Dependabot's own version comparison) has accurate
+  information instead of stale ranges.
+  **Important discovery from this same comparison**: 7 packages
+  (`@next/bundle-analyzer`, `@sentry/nextjs`, `@vercel/otel`, `morgan`,
+  `server-only`, `winston`, `winston-daily-rotate-file`) have NO entry at
+  all in `package-lock.json` — they were added to `package.json` in later
+  batches (17/19/etc.) that never had `npm install` available to
+  regenerate the lockfile. This means **`npm ci` will currently fail**
+  (it requires an exact lockfile match); **`npm install` is required**,
+  not `npm ci`, the first time this project is actually set up outside
+  this sandbox. Flagged clearly in the final report's deployment steps.
+
+Files touched (dependencies): `package.json`, `.github/dependabot.yml`
+(new), deleted `src/server/middlewares/multer.js` and
+`src/server/middlewares/admin.js`. `package-lock.json` deliberately NOT
+hand-edited (too large/complex to safely edit without `npm install` to
+verify the result) — regenerates correctly on next real `npm install`.
+
+Final regression check after all of Batch 20's changes: 223 `.js`/`.jsx`
+files under `src/`, 229 including root config files — 0 syntax errors,
+0 import/export problems.
+
+Still to do before this batch is complete: final consolidated report
+(Section 20) and packaging.
+
+**Batch 20 complete.** Final report written to
+`PRODUCTION_READINESS_REPORT.md` at the project root (security/performance/
+Lighthouse-estimate/OWASP checklist/files-changed/commands/deployment
+steps — kept separate from this file since this one is the batch-by-batch
+working log and that one is the point-in-time deliverable snapshot).
+Project packaged as a zip and delivered. Next session: read this file
+first as always; if nothing new has broken, start from the recommended
+next steps at the end of `PRODUCTION_READINESS_REPORT.md` (§12) rather
+than re-auditing everything this batch already covered.
+
+---
+
 ## Batch 19 — Section 13 (Admin Panel Security) + 14 (Payment Security) + 15 (Next.js Best Practices)
 
 Scope: the third and final requested section group, on top of Batches

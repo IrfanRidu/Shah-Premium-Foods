@@ -64,10 +64,17 @@ export default function PreferenceSelector() {
   };
 
   // Personal preference — stored in Redux only. The unified localStorageMiddleware
-  // (src/store/localStorageMiddleware.js) already persists the whole `siteSettings`
-  // slice — including theme/language — on every action, and setSiteSettings()
-  // now preserves these two leaf fields across every settings refetch (Fix 44),
-  // so no separate/duplicate localStorage bookkeeping is needed here anymore.
+  // (src/store/localStorageMiddleware.js) persists the whole `siteSettings`
+  // slice — including theme/language — on every action. setSiteSettings()
+  // preserves these two leaf fields across every settings refetch via a
+  // dedicated `isOverride` flag that this action sets atomically (Fix 50 —
+  // see siteSettingsSlice.js's comment: the earlier Fix 44 attempt used a
+  // shared `loaded` flag that looked right but didn't actually survive the
+  // first fetchSiteSettings() call of a fresh page load, which is why this
+  // used to revert on every refresh despite the comment here claiming it
+  // was handled). No separate/duplicate localStorage bookkeeping is needed
+  // here — GlobalProvider's boot effect restores both the value and the
+  // override flag together from the persisted slice.
   const setPersonalTheme = (code) => dispatch(setActiveTheme(code));
   const setPersonalLang  = (code) => dispatch(setActiveLanguage(code));
 
