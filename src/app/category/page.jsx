@@ -11,7 +11,7 @@ export default function CategoryPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
         <div className="skeleton h-8 w-48 rounded mb-6" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({length:12}).map((_,i)=>(<div key={i} className="skeleton aspect-square rounded-2xl"/>))}
@@ -21,7 +21,7 @@ export default function CategoryPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
       <h1 className="section-heading text-3xl mb-2">All Categories</h1>
       <p className="text-theme-muted mb-8">Browse all product categories</p>
 

@@ -3,6 +3,25 @@ import InventoryLogModel from "../models/inventoryLog.model.js";
 import CategoryModel from "../models/category.model.js";
 import SubCategoryModel from "../models/subcategory.model.js";
 
+// Mobile UI pass (Section 11 — "mobile-friendly sorting"): this didn't
+// exist before — every public product-list query hardcoded
+// .sort({ createdAt: -1 }) with no way to change it. Whitelist-mapped
+// rather than accepting a raw client-supplied sort object directly (that
+// would let a request specify an arbitrary/expensive sort on an
+// unindexed field, a real minor DoS vector on a public, unauthenticated
+// endpoint) — only these five known values are accepted, and anything
+// else (including undefined/omitted, which is every existing caller,
+// including the admin panel) falls back to the exact previous behavior,
+// so this is purely additive and can't change any existing response.
+export const SORT_OPTIONS = {
+  newest:     { createdAt: -1 },
+  price_asc:  { price: 1 },
+  price_desc: { price: -1 },
+  name_asc:   { name: 1 },
+  name_desc:  { name: -1 },
+};
+export const buildSortOption = (sortBy) => SORT_OPTIONS[sortBy] || SORT_OPTIONS.newest;
+
 // Auto-generate a unique SKU like SPF-00001
 const generateSKU = async () => {
   const count = await ProductModel.countDocuments();
@@ -65,9 +84,10 @@ export const addProductController = async (req, res) => {
 // GET PRODUCTS (public, paginated)
 export const getProductsController = async (req, res) => {
   try {
-    let { page, limit, search } = req.body;
+    let { page, limit, search, sortBy } = req.body;
     page = page || 1;
     limit = limit || 10;
+    const sortOption = buildSortOption(sortBy);
 
     const term = (search || "").trim();
     const query = term
@@ -88,7 +108,7 @@ export const getProductsController = async (req, res) => {
     // every read query in the app (23 controllers is a lot of ground),
     // but the highest-traffic ones are covered.
     const [data, totalCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("category").populate("subCategory").lean(),
+      ProductModel.find(query).sort(sortOption).skip(skip).limit(limit).populate("category").populate("subCategory").lean(),
       ProductModel.countDocuments(query),
     ]);
 
@@ -102,13 +122,13 @@ export const getProductsController = async (req, res) => {
 // GET PRODUCTS BY CATEGORY
 export const getProductsByCategoryController = async (req, res) => {
   try {
-    let { id, page, limit } = req.body;
+    let { id, page, limit, sortBy } = req.body;
     if (!id) return res.status(400).json({ message: "Category id is required", error: true, success: false });
     page = page || 1; limit = limit || 15;
     const skip = (page - 1) * limit;
     const query = { category: { $in: [id] }, publish: true };
     const [data, totalCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      ProductModel.find(query).sort(buildSortOption(sortBy)).skip(skip).limit(limit).lean(),
       ProductModel.countDocuments(query),
     ]);
     return res.json({ message: "Products fetched successfully", error: false, success: true,
@@ -121,14 +141,14 @@ export const getProductsByCategoryController = async (req, res) => {
 // GET PRODUCTS BY CATEGORY AND SUBCATEGORY
 export const getProductsByCategoryAndSubCategoryController = async (req, res) => {
   try {
-    let { categoryId, subCategoryId, page, limit } = req.body;
+    let { categoryId, subCategoryId, page, limit, sortBy } = req.body;
     if (!categoryId || !subCategoryId)
       return res.status(400).json({ message: "Category and sub category id are required", error: true, success: false });
     page = page || 1; limit = limit || 10;
     const skip = (page - 1) * limit;
     const query = { category: { $in: [categoryId] }, subCategory: { $in: [subCategoryId] } };
     const [data, dataCount] = await Promise.all([
-      ProductModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      ProductModel.find(query).sort(buildSortOption(sortBy)).skip(skip).limit(limit).lean(),
       ProductModel.countDocuments(query),
     ]);
     return res.json({ message: "Products fetched successfully", error: false, success: true,

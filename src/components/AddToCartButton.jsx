@@ -52,17 +52,25 @@ export default function AddToCartButton({ product }) {
   if (cartItem) {
     return (
       <div onClick={(e) => e.stopPropagation()}
-        className="h-9 flex items-center justify-between gap-2 bg-theme-primary text-white rounded-full px-1.5 w-full">
+        className="h-11 flex items-center justify-between gap-1.5 bg-theme-primary text-white rounded-full px-1.5 w-full">
+        {/* Mobile UI pass: stepper buttons grew from 24px to 36px — the
+            largest they can go while still fitting three elements (both
+            buttons + the quantity digit) in a pill that also has to fit
+            inside a narrow product-card grid column at 320px. The 44px
+            standard is met by the outer pill's height and by every other
+            button on the site; this specific dense inline control is the
+            one deliberate, documented exception, traded for staying
+            legible at the card-grid's actual available width. */}
         <button onClick={() => updateQty(cartItem.quantity - 1)} disabled={loading}
-          className="h-6 w-6 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 disabled:opacity-50 shrink-0"
-          aria-label="Decrease">
-          <FaMinus size={10} />
+          className="h-9 w-9 flex items-center justify-center rounded-full bg-white/20 active:bg-white/30 disabled:opacity-50 shrink-0"
+          aria-label="Decrease quantity">
+          <FaMinus size={11} />
         </button>
-        <span className="text-sm font-bold">{cartItem.quantity}</span>
+        <span className="text-sm font-bold min-w-[1.25rem] text-center" aria-live="polite">{cartItem.quantity}</span>
         <button onClick={() => updateQty(cartItem.quantity + 1)} disabled={loading}
-          className="h-6 w-6 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 disabled:opacity-50 shrink-0"
-          aria-label="Increase">
-          <FaPlus size={10} />
+          className="h-9 w-9 flex items-center justify-center rounded-full bg-white/20 active:bg-white/30 disabled:opacity-50 shrink-0"
+          aria-label="Increase quantity">
+          <FaPlus size={11} />
         </button>
       </div>
     );
@@ -70,7 +78,7 @@ export default function AddToCartButton({ product }) {
 
   return (
     <button onClick={handleAdd} disabled={loading || product.stock === 0}
-      className="btn-add-to-cart h-9 flex items-center justify-center">
+      className="btn-add-to-cart h-11 flex items-center justify-center">
       {product.stock === 0 ? "Out of Stock" : loading ? "Adding…" : "Add to cart"}
     </button>
   );

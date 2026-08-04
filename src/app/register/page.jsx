@@ -34,30 +34,30 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+    <div className="min-h-[80vh] flex items-center justify-center px-3 sm:px-4 py-6 lg:py-10">
       <div className="w-full max-w-md">
-        <div className="modal-box p-8">
-          <h1 className="font-display text-3xl font-bold mb-1">Create account</h1>
-          <p className="text-sm text-theme-muted mb-7">Join Shah Premium Foods today</p>
+        <div className="modal-box p-5 sm:p-8">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">Create account</h1>
+          <p className="text-sm text-theme-muted mb-6 sm:mb-7">Join Shah Premium Foods today</p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1.5">Full Name</label>
               <input {...register("name", { required: "Name is required" })}
-                type="text" placeholder="John Doe" className="input-field" />
+                type="text" autoComplete="name" placeholder="John Doe" className="input-field" />
               {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1.5">Email</label>
               <input {...register("email", { required: "Email is required", pattern: { value: /\S+@\S+\.\S+/, message: "Invalid email" } })}
-                type="email" placeholder="you@example.com" className="input-field" />
+                type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" className="input-field" />
               {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1.5">Mobile (optional)</label>
-              <input {...register("mobile")} type="tel" placeholder="+880 1XXX XXXXXX" className="input-field" />
+              <input {...register("mobile")} type="tel" inputMode="tel" autoComplete="tel" placeholder="+880 1XXX XXXXXX" className="input-field" />
             </div>
 
             <div>

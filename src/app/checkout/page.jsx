@@ -186,8 +186,8 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="section-heading text-3xl mb-7">{t("checkout.title")}</h1>
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
+      <h1 className="section-heading text-2xl sm:text-3xl mb-4 sm:mb-7">{t("checkout.title")}</h1>
 
       {/* Profile info warning (name only — mobile is no longer required on the profile) */}
       {missingInfo.length > 0 && (
@@ -213,7 +213,7 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid lg:grid-cols-3 gap-4 lg:gap-6 pb-24 lg:pb-0">
         {/* ── Left ── */}
         <div className="lg:col-span-2 space-y-5">
           {/* Address */}
@@ -315,7 +315,7 @@ export default function CheckoutPage() {
         </div>
 
         {/* ── Order summary ── */}
-        <div className="bg-[var(--color-surface)] border border-theme rounded-2xl p-5 h-fit sticky top-24">
+        <div className="bg-[var(--color-surface)] border border-theme rounded-2xl p-4 sm:p-5 h-fit lg:sticky lg:top-24">
           <h2 className="font-display text-lg font-semibold mb-4">{t("checkout.orderSummary")}</h2>
 
           <div className="space-y-3 mb-4 max-h-56 overflow-y-auto">
@@ -374,15 +374,44 @@ export default function CheckoutPage() {
             )}
           </div>
 
+          {/* Hidden on mobile — the fixed bottom bar below is the mobile
+              submit action, so this isn't a redundant second button one
+              scroll away from it on small screens. */}
           <button
             onClick={handleOrder}
             disabled={loading || !selectedAddr || missingInfo.length > 0 || addressMissingMobile}
-            className="btn-primary w-full py-3 disabled:opacity-60"
+            className="hidden lg:block btn-primary w-full py-3 disabled:opacity-60"
           >
             {loading
               ? "Processing…"
               : payment === "cash"
                 ? (codRequireCharge && delivery.charge > 0 ? "Pay Delivery Charge & Place Order" : t("checkout.placeOrderCod"))
+                : t("checkout.payNow")}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile sticky submit bar — requirement: "Sticky submit button
+          where appropriate" for checkout. The left column (address/zone/
+          payment) can be a long, multi-section stack on mobile, so keeping
+          the submit action reachable with one thumb regardless of scroll
+          position matters more here than almost anywhere else on the site. */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-[var(--color-header-bg)] border-t border-theme px-3 py-2.5"
+        style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] text-theme-muted leading-tight">{t("checkout.total")}</p>
+            <p className="font-bold text-theme-primary text-base leading-tight truncate">{displayPrice(totalAmt, currency, rates)}</p>
+          </div>
+          <button
+            onClick={handleOrder}
+            disabled={loading || !selectedAddr || missingInfo.length > 0 || addressMissingMobile}
+            className="btn-primary px-5 shrink-0 disabled:opacity-60 whitespace-nowrap text-sm"
+          >
+            {loading
+              ? "Processing…"
+              : payment === "cash"
+                ? (codRequireCharge && delivery.charge > 0 ? "Pay Charge & Order" : t("checkout.placeOrderCod"))
                 : t("checkout.payNow")}
           </button>
         </div>

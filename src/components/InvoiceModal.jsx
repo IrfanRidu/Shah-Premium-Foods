@@ -143,16 +143,16 @@ export default function InvoiceModal({ order, onClose, currency, rates }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box max-w-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-1 bg-[var(--color-bg)] border border-theme rounded-full p-1">
-            <button onClick={() => setMode("invoice")} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${mode === "invoice" ? "bg-theme-primary text-white" : "text-theme-muted"}`}>Full Invoice</button>
-            <button onClick={() => setMode("label")} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${mode === "label" ? "bg-theme-primary text-white" : "text-theme-muted"}`}>Shipping Label</button>
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex gap-1 bg-[var(--color-bg)] border border-theme rounded-full p-1 overflow-x-auto">
+            <button onClick={() => setMode("invoice")} className={`h-9 px-3 sm:px-4 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${mode === "invoice" ? "bg-theme-primary text-white" : "text-theme-muted"}`}>Full Invoice</button>
+            <button onClick={() => setMode("label")} className={`h-9 px-3 sm:px-4 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${mode === "label" ? "bg-theme-primary text-white" : "text-theme-muted"}`}>Shipping Label</button>
           </div>
-          <button onClick={onClose}><FaTimes/></button>
+          <button onClick={onClose} aria-label="Close" className="h-11 w-11 shrink-0 flex items-center justify-center rounded-lg active:bg-[var(--color-border)]"><FaTimes/></button>
         </div>
 
         {/* ── Printable content ── */}
-        <div ref={printRef} className="bg-white text-black rounded-xl border border-theme p-5 max-h-[60vh] overflow-y-auto">
+        <div ref={printRef} className="bg-white text-black rounded-xl border border-theme p-3 sm:p-5 max-h-[60vh] overflow-y-auto overflow-x-auto">
           {mode === "invoice" ? (
             <div>
               <div className="flex justify-between items-start mb-4">
@@ -231,9 +231,9 @@ export default function InvoiceModal({ order, onClose, currency, rates }) {
           )}
         </div>
 
-        <div className="flex gap-3 justify-end pt-4 mt-2">
-          <button onClick={handleDownloadPdf} className="btn-outline px-5 py-2 flex items-center gap-2"><FaDownload size={12}/> Download PDF</button>
-          <button onClick={handlePrint} className="btn-primary px-5 py-2 flex items-center gap-2"><FaPrint size={12}/> Print</button>
+        <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:justify-end pt-4 mt-2">
+          <button onClick={handleDownloadPdf} className="btn-outline w-full sm:w-auto px-5 flex items-center justify-center gap-2"><FaDownload size={12}/> Download PDF</button>
+          <button onClick={handlePrint} className="btn-primary w-full sm:w-auto px-5 flex items-center justify-center gap-2"><FaPrint size={12}/> Print</button>
         </div>
       </div>
     </div>

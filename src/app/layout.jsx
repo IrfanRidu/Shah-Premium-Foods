@@ -225,9 +225,19 @@ gtag('config', '${seo.googleAnalyticsId}');`,
         )}
       </head>
       <body className="flex flex-col min-h-dvh">
+        {/* Accessibility pass (requirement #14 — "keyboard accessibility"):
+            skip-to-content link. Invisible until keyboard-focused (sr-only
+            until :focus), then becomes a visible, clearly-styled button —
+            standard pattern letting a keyboard user jump straight to
+            #main-content instead of tabbing through the full header/nav
+            on every single page load. */}
+        <a href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:bg-theme-primary focus:text-white focus:px-4 focus:py-2.5 focus:rounded-lg focus:font-semibold focus:shadow-lg">
+          Skip to content
+        </a>
         <Providers>
           <Header />
-          <main className="flex-1">{children}</main>
+          <main id="main-content" className="flex-1">{children}</main>
           <Footer />
         </Providers>
       </body>

@@ -137,19 +137,40 @@ function FaqItem({ question, answer }) {
 
 // FAQ Section — 3-column grid to keep it compact
 function FaqSection({ faqs, t }) {
+  const [showAll, setShowAll] = useState(false);
   if (!faqs || faqs.length === 0) return null;
   const sorted = [...faqs].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const hiddenCount = Math.max(0, sorted.length - 2);
   return (
-    <section className="py-8">
-      <div className="mb-6 text-center">
-        <h2 className="section-heading text-2xl mb-1">{t("faq.title")}</h2>
+    <section className="py-6 sm:py-8">
+      <div className="mb-4 sm:mb-6 text-center">
+        <h2 className="section-heading text-xl sm:text-2xl mb-1">{t("faq.title")}</h2>
         <p className="text-sm text-theme-muted">{t("faq.subtitle")}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {sorted.map((faq) => (
-          <FaqItem key={faq._id || faq.question} question={faq.question} answer={faq.answer} />
+        {sorted.map((faq, i) => (
+          // Requirement: only 2 questions visible by default on mobile, rest
+          // expandable manually. `hidden sm:block` keeps every FAQ in the DOM
+          // (so search engines still index the full content — matters given
+          // the SEO work already done elsewhere in this project) while only
+          // hiding items 3+ visually below the sm breakpoint, and only until
+          // showAll is toggled. Desktop (sm+) always shows everything,
+          // regardless of showAll — this is a mobile-only restriction.
+          <div key={faq._id || faq.question} className={i >= 2 && !showAll ? "hidden sm:block" : ""}>
+            <FaqItem question={faq.question} answer={faq.answer} />
+          </div>
         ))}
       </div>
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="sm:hidden mx-auto mt-3 flex items-center justify-center gap-1.5 min-h-11 px-4 text-sm font-semibold text-theme-primary active:opacity-70 w-full"
+          aria-expanded={showAll}
+        >
+          {showAll ? "Show less" : `Show ${hiddenCount} more question${hiddenCount > 1 ? "s" : ""}`}
+          <FaChevronDown className={`text-xs transition-transform duration-200 ${showAll ? "rotate-180" : ""}`} />
+        </button>
+      )}
     </section>
   );
 }
@@ -271,7 +292,7 @@ export default function HomePage() {
   );
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-6 space-y-4 lg:space-y-6">
       {/* Hero Banner */}
       <Carousel banners={settings.banners || []} />
 

@@ -6,6 +6,7 @@ import ProductModel from "@/server/models/product.model";
 import { extractIdFromSlug } from "@/lib/slug";
 import dataCache from "@/lib/cache";
 import { serializeDoc } from "@/lib/serialize";
+import { buildSortOption } from "@/server/controllers/product.controller";
 
 // Matches the old client-side fetch's own limit
 // (`Axios({...api.getProductByCategory, data:{id:catId,page:1,limit:20}})`)
@@ -26,12 +27,18 @@ import { serializeDoc } from "@/lib/serialize";
 // `createdAt` needed the same fix as product.js's.
 const PAGE_SIZE = 20;
 
-export const getCategoryPageData = cache(async (slug) => {
+export const getCategoryPageData = cache(async (slug, sortBy = "newest") => {
   const catId = extractIdFromSlug(slug);
   if (!catId) return null;
 
   return dataCache.getOrSet(
-    `categoryPage:${catId}`,
+    // Section 11 (Category Pages — "mobile-friendly sorting") addition:
+    // sortBy is now part of the cache key. Without this, selecting a
+    // different sort would silently keep serving whichever order got
+    // cached first for this category — a real, confusing bug (the sort
+    // control would visibly change but the product order wouldn't),
+    // not merely a missed optimization.
+    `categoryPage:${catId}:${sortBy}`,
     async () => {
       await connectDb();
       const category = await CategoryModel.findById(catId).lean();
@@ -46,7 +53,7 @@ export const getCategoryPageData = cache(async (slug) => {
       const query = { category: { $in: [catId] }, publish: true };
       const [subCategories, products, totalCount] = await Promise.all([
         SubCategoryModel.find({ category: catId }).lean(),
-        ProductModel.find(query).sort({ createdAt: -1 }).limit(PAGE_SIZE).lean(),
+        ProductModel.find(query).sort(buildSortOption(sortBy)).limit(PAGE_SIZE).lean(),
         ProductModel.countDocuments(query),
       ]);
 

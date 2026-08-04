@@ -22,17 +22,17 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+    <div className="min-h-[80vh] flex items-center justify-center px-3 sm:px-4 py-6 lg:py-10">
       <div className="w-full max-w-md">
-        <div className="modal-box p-8">
-          <h1 className="font-display text-3xl font-bold mb-1">Forgot password?</h1>
+        <div className="modal-box p-5 sm:p-8">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">Forgot password?</h1>
           <p className="text-sm text-theme-muted mb-7">Enter your email and we'll send you an OTP</p>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1.5">Email</label>
               <input
                 {...register("email", { required: "Email is required", pattern: { value: /\S+@\S+\.\S+/, message: "Invalid email" } })}
-                type="email" placeholder="you@example.com" className="input-field"
+                type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" className="input-field"
               />
               {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
             </div>

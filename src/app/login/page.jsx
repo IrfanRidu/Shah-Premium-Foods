@@ -85,11 +85,11 @@ export default function LoginPage() {
 
   if (pendingOtpEmail) {
     return (
-      <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+      <div className="min-h-[80vh] flex items-center justify-center px-3 sm:px-4 py-6 lg:py-10">
         <div className="w-full max-w-md">
-          <div className="modal-box p-8">
-            <h1 className="font-display text-3xl font-bold mb-1">Enter your code</h1>
-            <p className="text-sm text-theme-muted mb-7">
+          <div className="modal-box p-5 sm:p-8">
+            <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">Enter your code</h1>
+            <p className="text-sm text-theme-muted mb-6 sm:mb-7">
               We emailed a 6-digit code to <span className="font-medium text-theme">{pendingOtpEmail}</span>. It expires in 10 minutes.
             </p>
             <form onSubmit={onSubmitOtp} className="space-y-4">
@@ -100,7 +100,7 @@ export default function LoginPage() {
                 autoComplete="one-time-code"
                 placeholder="123456"
                 autoFocus
-                className="input-field text-center text-2xl tracking-[0.5em] font-mono"
+                className="input-field text-center text-xl sm:text-2xl tracking-[0.35em] sm:tracking-[0.5em] font-mono"
                 maxLength={6}
               />
               <button type="submit" disabled={verifyingOtp} className="btn-primary w-full py-2.5">
@@ -118,17 +118,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+    <div className="min-h-[80vh] flex items-center justify-center px-3 sm:px-4 py-6 lg:py-10">
       <div className="w-full max-w-md">
-        <div className="modal-box p-8">
-          <h1 className="font-display text-3xl font-bold mb-1">Welcome back</h1>
-          <p className="text-sm text-theme-muted mb-7">Sign in to your account to continue</p>
+        <div className="modal-box p-5 sm:p-8">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">Welcome back</h1>
+          <p className="text-sm text-theme-muted mb-6 sm:mb-7">Sign in to your account to continue</p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1.5">Email</label>
               <input {...register("email", { required: "Email is required", pattern: { value: /\S+@\S+\.\S+/, message: "Invalid email" } })}
-                type="email" autoComplete="email" placeholder="you@example.com" className="input-field" />
+                type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" className="input-field" />
               {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
             </div>
 

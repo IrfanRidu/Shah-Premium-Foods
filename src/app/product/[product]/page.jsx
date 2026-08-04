@@ -116,7 +116,7 @@ export default async function ProductPage({ params }) {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-10">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8 space-y-5 lg:space-y-10 pb-24 lg:pb-8">
       <script
         nonce={nonce}
         type="application/ld+json"
@@ -142,7 +142,7 @@ export default async function ProductPage({ params }) {
       </nav>
 
       {/* Product detail grid */}
-      <div className="grid md:grid-cols-2 gap-8 lg:gap-16">
+      <div className="grid md:grid-cols-2 gap-5 lg:gap-16">
         <ProductGallery images={images} productId={product._id} productName={product.name} />
 
         {/* Info */}
@@ -169,7 +169,7 @@ export default async function ProductPage({ params }) {
           {product.more_details && Object.keys(product.more_details).length > 0 && (
             <div className="border-t border-theme pt-4">
               <h3 className="font-semibold mb-3">Product Details</h3>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 sm:gap-y-2 text-sm">
                 {Object.entries(product.more_details).map(([k, v]) => (
                   <div key={k}>
                     <dt className="text-theme-muted capitalize">{k}</dt>

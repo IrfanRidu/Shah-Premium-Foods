@@ -23,7 +23,7 @@ export default function SitemapPage() {
   }, []);
 
   return (
-    <div className="container mx-auto px-4 py-10 max-w-4xl">
+    <div className="container mx-auto px-3 sm:px-4 py-5 lg:py-10 max-w-4xl">
       <h1 className="section-heading text-2xl md:text-3xl mb-2">Sitemap</h1>
       <p className="text-sm text-theme-muted mb-8">A full map of every page on this site.</p>
 

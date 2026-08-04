@@ -74,7 +74,7 @@ function ProductCard({ product }) {
         )}
         {/* Regular discount badge */}
         {!isCampaign && hasDiscount && (
-          <span className="absolute top-2 left-2 bg-[var(--color-secondary)] text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">
+          <span className="absolute top-2 left-2 bg-[var(--color-secondary-badge)] text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">
             {effectiveDiscount}% OFF
           </span>
         )}
@@ -84,10 +84,20 @@ function ProductCard({ product }) {
             <span className="bg-white/90 text-xs font-bold px-3 py-1 rounded-full text-gray-700 backdrop-blur-sm">Out of Stock</span>
           </div>
         )}
-        {/* Fix 33: Low stock badge */}
+        {/* Fix 33: Low stock badge.
+            Mobile UI pass: added max-w + truncate — this previously had no
+            overflow safeguard (unlike the campaign badge above), and its
+            text is long enough to genuinely push past the card's edge at
+            the ~136px card width a 2-column mobile grid produces. Shorter
+            copy on the smallest screens, fuller copy from sm: up, both
+            still truncate as a safety net regardless of stock-count digits. */}
         {isLowStock && (
-          <span className="absolute bottom-2 left-1 right-1 mx-auto w-fit flex items-center gap-1 bg-orange-500/90 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full shadow">
-            🔥 Running Out Quickly — Only {product.stock} Left
+          <span className="absolute bottom-2 left-1.5 right-1.5 mx-auto w-fit max-w-[calc(100%-0.75rem)] flex items-center gap-1 bg-orange-500/90 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full shadow">
+            <span className="shrink-0">🔥</span>
+            <span className="truncate">
+              <span className="sm:hidden">Only {product.stock} left</span>
+              <span className="hidden sm:inline">Running Out — Only {product.stock} Left</span>
+            </span>
           </span>
         )}
       </div>
@@ -99,25 +109,45 @@ function ProductCard({ product }) {
           description just get empty space below their text instead of the
           button drifting up — the button's position is now guaranteed
           consistent card-to-card without relying on cross-card stretch
-          propagation through any wrapping grid/flex container. */}
-      <div className="card-info p-3">
+          propagation through any wrapping grid/flex container.
+          Mobile UI pass: p-3 -> p-2.5 sm:p-3 (slightly tighter on the
+          narrowest phones, where 2-column cards are only ~136px wide). */}
+      <div className="card-info p-2.5 sm:p-3">
         <div className="space-y-1 mb-2 min-h-[6.5rem]">
-          <h3 className="text-sm font-semibold line-clamp-2 leading-snug">{product.name}</h3>
+          <h3 className="text-[13px] sm:text-sm font-semibold line-clamp-2 leading-snug">{product.name}</h3>
 
           {/* Fix 29: Short description, truncated to 2 lines */}
           {product.shortDescription && (
-            <p className="text-xs text-theme-muted line-clamp-2 leading-relaxed">{product.shortDescription}</p>
+            <p className="text-[11px] sm:text-xs text-theme-muted line-clamp-2 leading-relaxed">{product.shortDescription}</p>
           )}
-          {product.unit && <p className="text-xs text-theme-muted">{product.unit}</p>}
+          {product.unit && <p className="text-[11px] sm:text-xs text-theme-muted">{product.unit}</p>}
+
+          {/* Rating: this codebase has no review/rating system yet (no
+              model, no data anywhere) — deliberately NOT showing fabricated
+              stars, since that would misrepresent real product quality to
+              a shopper. This renders only if product.rating is ever
+              actually populated by a future backend feature, so the card
+              is ready for it without any further layout change. */}
+          {typeof product.rating === "number" && product.rating > 0 && (
+            <div className="flex items-center gap-1 pt-0.5">
+              <span className="flex items-center gap-0.5 text-amber-400 text-xs">
+                {"★".repeat(Math.round(product.rating))}
+                <span className="text-[var(--color-border)]">{"★".repeat(5 - Math.round(product.rating))}</span>
+              </span>
+              {typeof product.numReviews === "number" && (
+                <span className="text-[11px] text-theme-muted">({product.numReviews})</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`font-bold text-sm ${isCampaign ? "text-red-500" : "text-theme-primary"}`}>
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <span className={`font-bold text-[13px] sm:text-sm ${isCampaign ? "text-red-500" : "text-theme-primary"}`}>
               {displayPrice(discounted, currency, rates)}
             </span>
             {hasDiscount && (
-              <span className="text-xs text-theme-muted line-through">
+              <span className="text-[11px] sm:text-xs text-theme-muted line-through">
                 {displayPrice(product.price, currency, rates)}
               </span>
             )}

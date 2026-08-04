@@ -10,7 +10,18 @@ export default function Providers({ children }) {
       <GlobalProvider>
         {children}
         <Toaster
-          position="top-right"
+          position="top-center"
+          containerStyle={{
+            // Mobile UI pass: top-right corner toasts are a desktop
+            // pattern — cramped and easy to miss on a narrow phone
+            // screen, and this site's mobile header is a sticky/fixed
+            // element a corner toast could visually collide with.
+            // top-center with an offset that clears the header (the
+            // compact mobile header lands around ~56-60px tall after
+            // this pass's changes) reads more like how mobile apps
+            // typically surface toasts.
+            top: 68,
+          }}
           toastOptions={{
             style: {
               background: "var(--color-surface)",
@@ -18,6 +29,8 @@ export default function Providers({ children }) {
               border: "1px solid var(--color-border)",
               borderRadius: "0.75rem",
               fontSize: "0.875rem",
+              maxWidth: "min(22rem, calc(100vw - 1.5rem))",
+              padding: "0.75rem 1rem",
             },
           }}
         />

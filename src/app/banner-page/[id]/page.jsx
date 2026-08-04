@@ -52,7 +52,7 @@ export default function BannerPage() {
   const title = banner?.title || "Featured Products";
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8 space-y-4 lg:space-y-8">
       <div>
         <h1 className="section-heading text-3xl">{title}</h1>
         {banner?.subtitle && <p className="text-theme-muted mt-1">{banner.subtitle}</p>}

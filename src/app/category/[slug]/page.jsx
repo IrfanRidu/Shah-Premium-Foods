@@ -6,6 +6,7 @@ import { validURLConvert } from "@/lib/slug";
 import SafeImage from "@/components/SafeImage";
 import ProductCard from "@/components/ProductCard";
 import NoData from "@/components/NoData";
+import CategorySortControl from "@/components/CategorySortControl";
 
 // Section 9 (Performance) — "ISR". Listing pages care less about
 // per-second freshness than a single product's own price/stock, so this
@@ -41,8 +42,15 @@ export async function generateMetadata({ params }) {
   };
 }
 
-export default async function CategorySlugPage({ params }) {
-  const data = await getCategoryPageData(params.slug);
+export default async function CategorySlugPage({ params, searchParams }) {
+  // Section 11 — validate against the same whitelist the backend uses
+  // rather than trusting the raw query string, consistent with why
+  // product.controller.js's own sortBy is whitelist-mapped rather than
+  // accepted as-is (a stray/malicious query param should just silently
+  // fall back to the default, not do anything unexpected).
+  const VALID_SORTS = new Set(["newest", "price_asc", "price_desc", "name_asc", "name_desc"]);
+  const sortBy = VALID_SORTS.has(searchParams?.sort) ? searchParams.sort : "newest";
+  const data = await getCategoryPageData(params.slug, sortBy);
   if (!data) notFound();
   const { category, subCategories, products } = data;
   const nonce = (await headers()).get("x-csp-nonce") || "";
@@ -79,7 +87,7 @@ export default async function CategorySlugPage({ params }) {
     : null;
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
       <script
         nonce={nonce}
         type="application/ld+json"
@@ -102,11 +110,14 @@ export default async function CategorySlugPage({ params }) {
         <span className="text-theme">{category.name}</span>
       </div>
 
-      <div className="flex items-center gap-3 mb-6">
-        {category.image && (
-          <SafeImage src={category.image} alt={category.name} width={48} height={48} className="h-12 w-12 rounded-xl object-cover" />
-        )}
-        <h1 className="section-heading text-2xl md:text-3xl">{category.name}</h1>
+      <div className="sticky top-[150px] md:top-24 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2.5 mb-4 sm:mb-6 bg-[var(--color-header-bg)]/95 backdrop-blur-sm border-b border-theme flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {category.image && (
+            <SafeImage src={category.image} alt={category.name} width={48} height={48} className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl object-cover shrink-0" />
+          )}
+          <h1 className="section-heading text-lg sm:text-2xl md:text-3xl truncate">{category.name}</h1>
+        </div>
+        {products.length > 0 && <CategorySortControl currentSort={sortBy} />}
       </div>
 
       {/* Sub-category chips */}
@@ -125,7 +136,7 @@ export default async function CategorySlugPage({ params }) {
       {products.length === 0
         ? <NoData message="No products in this category" />
         : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {products.map((p) => <ProductCard key={p._id} product={p} />)}
           </div>
         )

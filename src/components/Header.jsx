@@ -54,6 +54,21 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Accessibility pass (requirement #14 — "keyboard accessibility"):
+  // Escape closes whatever's open — the mobile drawer, and the desktop
+  // mega-menu/account dropdowns for the same reason. A keyboard user has
+  // no other way to dismiss these without this (no backdrop to click).
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      setMobileOpen(false);
+      setMegaState(null);
+      setUserState(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const clearMegaTimer = () => { if (megaHoverTimer.current) clearTimeout(megaHoverTimer.current); };
   const clearUserTimer = () => { if (userHoverTimer.current) clearTimeout(userHoverTimer.current); };
 
@@ -122,22 +137,26 @@ export default function Header() {
         </div>
       )}
 
-      <div className="container mx-auto px-4 py-3 flex items-center gap-3 lg:gap-6">
-        <button onClick={() => setMobileOpen(true)} className="lg:hidden text-2xl" aria-label="Menu">
+      <div className="container mx-auto px-3 sm:px-4 py-2 sm:py-3 flex items-center gap-2 sm:gap-3 lg:gap-6">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="lg:hidden -ml-1.5 h-11 w-11 shrink-0 flex items-center justify-center text-2xl rounded-lg active:bg-[var(--color-border)] transition-colors"
+          aria-label="Menu"
+        >
           <FaBars />
         </button>
 
-        <Link href="/" className="flex items-center gap-2 shrink-0">
+        <Link href="/" className="flex items-center gap-2 min-w-0 max-w-[42vw] sm:max-w-none">
           {settings.logo
             ? <SafeImage
                 src={settings.logo}
                 alt={settings.siteName}
                 width={160}
                 height={36}
-                className="h-9 w-auto"
+                className="h-8 sm:h-9 w-auto max-w-full"
                 priority
               />
-            : <span className="font-display text-xl md:text-2xl font-bold text-theme-primary">
+            : <span className="font-display text-base sm:text-xl md:text-2xl font-bold text-theme-primary truncate">
                 {settings.siteName || "Shah Premium Foods"}
               </span>
           }
@@ -201,13 +220,16 @@ export default function Header() {
 
         <div className="flex-1 hidden md:block max-w-md mx-auto"><Search /></div>
 
-        <div className="flex items-center gap-3 lg:gap-5 ml-auto">
+        <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 ml-auto">
           <PreferenceSelector />
-          <Link href="/cart" className="relative flex items-center gap-2 text-theme-primary">
+          <Link
+            href="/cart"
+            className="relative h-11 w-11 sm:w-auto shrink-0 flex items-center justify-center sm:justify-start sm:gap-2 sm:px-2 rounded-lg text-theme-primary active:bg-[var(--color-border)] transition-colors"
+          >
             <span className="relative text-2xl">
               <FaShoppingCart />
               {totalQty > 0 && (
-                <span className="absolute -top-2 -right-2 bg-[var(--color-secondary)] text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-[var(--color-secondary-badge)] text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center">
                   {totalQty}
                 </span>
               )}
@@ -224,7 +246,11 @@ export default function Header() {
               onMouseEnter={onUserMouseEnter}
               onMouseLeave={onUserMouseLeave}
             >
-              <button onClick={onUserClick} className="text-2xl flex items-center" aria-label="Account">
+              <button
+                onClick={onUserClick}
+                className="h-11 w-11 flex items-center justify-center text-2xl rounded-lg active:bg-[var(--color-border)] transition-colors"
+                aria-label="Account"
+              >
                 {user.avatar
                   ? <SafeImage src={user.avatar} alt={user.name} width={32} height={32} className="h-8 w-8 rounded-full object-cover" />
                   : <FaRegUserCircle />
@@ -237,42 +263,46 @@ export default function Header() {
               )}
             </div>
           ) : (
-            <Link href="/login" className="btn-primary text-sm">{t("nav.login")}</Link>
+            <Link href="/login" className="btn-primary text-xs sm:text-sm whitespace-nowrap">{t("nav.login")}</Link>
           )}
         </div>
       </div>
 
-      <div className="px-4 pb-3 md:hidden"><Search /></div>
+      <div className="px-3 sm:px-4 pb-2.5 md:hidden"><Search /></div>
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Mobile menu">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <div className="relative w-72 max-w-[85vw] bg-theme-surface h-full overflow-y-auto p-4 shadow-2xl">
-            <div className="flex items-center justify-between mb-5">
+          <nav aria-label="Mobile" className="relative w-[82vw] max-w-80 bg-theme-surface h-full overflow-y-auto p-4 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
               <span className="font-display text-lg font-bold text-theme-primary">
                 {settings.siteName || "Shah Premium Foods"}
               </span>
-              <button onClick={() => setMobileOpen(false)} className="text-2xl" aria-label="Close"><FaTimes /></button>
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="-mr-2 h-11 w-11 flex items-center justify-center text-2xl rounded-lg active:bg-[var(--color-border)]"
+                aria-label="Close"
+              ><FaTimes /></button>
             </div>
-            <Link href="/" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded-lg font-medium hover:bg-[var(--color-border)] mb-1">{t("nav.home")}</Link>
-            <Link href="/products" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded-lg font-medium hover:bg-[var(--color-border)] mb-1">{t("nav.allProducts")}</Link>
-            <p className="mt-3 mb-2 px-3 text-xs uppercase tracking-widest text-theme-muted font-semibold">{t("nav.categories")}</p>
+            <Link href="/" onClick={() => setMobileOpen(false)} className="flex items-center min-h-11 px-3 py-2.5 rounded-lg font-medium active:bg-[var(--color-border)] mb-0.5">{t("nav.home")}</Link>
+            <Link href="/products" onClick={() => setMobileOpen(false)} className="flex items-center min-h-11 px-3 py-2.5 rounded-lg font-medium active:bg-[var(--color-border)] mb-0.5">{t("nav.allProducts")}</Link>
+            <p className="mt-3 mb-1 px-3 text-xs uppercase tracking-widest text-theme-muted font-semibold">{t("nav.categories")}</p>
             {categories.map((cat) => {
               const subs = subCategories.filter((s) => s.category?.some((c) => (c._id || c) === cat._id));
               const open = mobileExp === cat._id;
               return (
                 <div key={cat._id}>
                   <button onClick={() => setMobileExp(open ? null : cat._id)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[var(--color-border)] text-sm font-medium">
+                    className="w-full min-h-11 flex items-center justify-between px-3 py-2.5 rounded-lg active:bg-[var(--color-border)] text-sm font-medium">
                     {cat.name}
-                    <FaChevronDown className={`text-xs transition-transform ${open ? "rotate-180" : ""}`} />
+                    <FaChevronDown className={`text-xs transition-transform shrink-0 ${open ? "rotate-180" : ""}`} />
                   </button>
                   {open && (
-                    <div className="pl-5 flex flex-col gap-0.5 mb-1">
+                    <div className="pl-4 flex flex-col gap-0.5 mb-1">
                       {subs.map((sub) => (
                         <button key={sub._id} onClick={() => goSub(cat, sub)}
-                          className="text-left text-sm py-1.5 px-2 text-theme-muted hover:text-theme-primary rounded">
+                          className="text-left text-sm min-h-11 flex items-center py-1.5 px-3 text-theme-muted active:text-theme-primary rounded">
                           {sub.name}
                         </button>
                       ))}
@@ -281,15 +311,15 @@ export default function Header() {
                 </div>
               );
             })}
-            <div className="mt-5 pt-5 border-t border-theme">
+            <div className="mt-4 pt-4 pb-2 border-t border-theme">
               {user._id
                 ? <Link href="/dashboard/profile" onClick={() => setMobileOpen(false)}
-                    className="block px-3 py-2 rounded-lg font-medium hover:bg-[var(--color-border)]">{t("nav.myAccount")}</Link>
+                    className="flex items-center min-h-11 px-3 py-2.5 rounded-lg font-medium active:bg-[var(--color-border)]">{t("nav.myAccount")}</Link>
                 : <Link href="/login" onClick={() => setMobileOpen(false)}
                     className="block text-center btn-primary">{t("nav.login")}</Link>
               }
             </div>
-          </div>
+          </nav>
         </div>
       )}
     </header>

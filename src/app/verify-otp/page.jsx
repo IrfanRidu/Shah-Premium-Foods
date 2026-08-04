@@ -58,14 +58,22 @@ function VerifyOTPInner() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-10">
+    <div className="min-h-[80vh] flex items-center justify-center px-3 sm:px-4 py-6 lg:py-10">
       <div className="w-full max-w-md">
-        <div className="modal-box p-8 text-center">
-          <h1 className="font-display text-3xl font-bold mb-1">Enter OTP</h1>
+        <div className="modal-box p-5 sm:p-8 text-center">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">Enter OTP</h1>
           <p className="text-sm text-theme-muted mb-8">
             We sent a 6-digit code to <strong>{email}</strong>
           </p>
-          <div className="flex justify-center gap-2 mb-6">
+          {/* Mobile UI pass: 6 boxes at the original 44px + 8px gaps totaled
+              304px — genuinely wider than the ~224-248px of content width
+              available inside this modal at a 320px viewport (confirmed
+              via the actual padding/container math, not assumed). Smaller
+              on mobile, original size from sm: up. inputMode="numeric" +
+              autoComplete="one-time-code" added too — the latter lets iOS/
+              Android offer the SMS-received code as a one-tap autofill
+              suggestion above the keyboard, which didn't exist before. */}
+          <div className="flex justify-center gap-1.5 sm:gap-2 mb-6">
             {otp.map((d, i) => (
               <input
                 key={i}
@@ -74,7 +82,9 @@ function VerifyOTPInner() {
                 onChange={(e) => handle(i, e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Backspace" && !d && i > 0) refs.current[i - 1]?.focus(); }}
                 maxLength={1}
-                className="input-field w-11 h-12 text-center text-xl font-bold"
+                inputMode="numeric"
+                autoComplete={i === 0 ? "one-time-code" : "off"}
+                className="input-field w-8 h-11 sm:w-11 sm:h-12 text-center text-lg sm:text-xl font-bold px-0"
               />
             ))}
           </div>

@@ -86,14 +86,14 @@ export default function PreferenceSelector() {
       onMouseLeave={onMouseLeave}
     >
       <button onClick={onTriggerClick}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-theme text-xs font-semibold hover:bg-[var(--color-border)] transition-colors">
-        <FaGlobe size={12} />
-        {currency}
-        <FaChevronDown size={9} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+        className="h-11 sm:h-auto flex items-center gap-1.5 px-2.5 sm:py-1.5 rounded-full border border-theme text-xs font-semibold active:bg-[var(--color-border)] transition-colors">
+        <FaGlobe size={13} />
+        <span className="hidden sm:inline">{currency}</span>
+        <FaChevronDown size={9} className={`hidden sm:inline transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-64 bg-[var(--color-surface)] border border-theme rounded-xl shadow-xl z-50 p-3 animate-slide-up">
+        <div className="absolute right-0 top-full mt-2 w-64 max-w-[85vw] bg-[var(--color-surface)] border border-theme rounded-xl shadow-xl z-50 p-3 animate-slide-up">
           {/* Currency */}
           <p className="text-xs font-semibold uppercase tracking-widest text-theme-muted mb-2">{t("common.currency")}</p>
           <div className="grid grid-cols-3 gap-1.5 mb-1.5">

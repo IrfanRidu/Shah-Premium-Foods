@@ -1,5 +1,298 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 22 — Hero banner revert + items 11/12/14 (Category pages, Animations, Accessibility)
+
+**Hero banner revert (user-reported regression from Batch 21)**: user said
+the aspect-[4/3] redesign wasn't as good as the original aspect-[3/1].
+Reverted to the exact original classes/sizing — but computed via
+Tailwind's actual default line-heights that the original had a genuine
+clipping risk at common phone widths (content needs ~144px, aspect-[3/1]
+alone only reaches that above ~430px width). Fixed with min-h-[180px]
+added ALONGSIDE aspect-[3/1] (not replacing it) — a pure floor that only
+activates below ~540px width; above that, and at every width where the
+original already worked fine, the banner is now pixel-for-pixel what it
+was before. Also added defensive line-clamp-2 on slide title (previously
+unclamped — a genuinely long admin-entered title could break the layout)
+and bumped the slide button to min-h-11 (was 40px, 4px under the 44px
+touch standard) — both invisible for normal short content.
+
+**Item 19 (from the prior message) — FAQ**: 2 questions visible by
+default on mobile, "Show N more" toggle reveals the rest via conditional
+visibility (not array slicing, so full content stays in the DOM for SEO).
+Desktop unaffected.
+
+**Discovered more prior work than tracked**: grepped for "Mobile UI pass"
+comments across the codebase and directly verified file contents rather
+than trusting the internal task-tracking notes alone — found
+forgot-password/reset-password/verify-otp pages, the Toaster config, and
+global scroll-behavior:smooth were all already done in earlier
+(untracked) work this session. Lesson recorded for future sessions:
+verify current file state directly before assuming something needs doing.
+
+**Item 11 (Category Pages)**: no price/category filter feature exists
+anywhere in this codebase (only sort) — building one from scratch would
+be a new feature, not a UI redesign, so focused on making sort excellent
+instead of fabricating a filter UI with no backend behind it. Made the
+products-page sort toolbar sticky. category/[slug]/page.jsx is a Server
+Component (an earlier RSC conversion) with no client state to hang a sort
+dropdown off — implemented sort via URL search params instead of
+regressing that conversion: new CategorySortControl.jsx client island,
+SORT_OPTIONS/buildSortOption exported from product.controller.js for
+reuse (not duplicated), and — critically — the category data cache key
+updated to include sortBy, since without that, different sort choices
+would have silently shared one cached result. subCategory and search
+pages don't have sort yet — disclosed as a deferred follow-up, not
+silently skipped. Smooth scrolling: already global (scroll-behavior:
+smooth in globals.css from earlier work) — verified, not re-added.
+
+**Item 12 (Animations)**: audited every transition/animation sitewide.
+Found the architecture already only animates transform/opacity/color
+properties — never width/height/top/left/margin — so the 60fps
+requirement was already substantially met structurally. Most durations
+already sit in a reasonable 150-250ms band (150ms specifically for
+instant tap/press feedback, which is standard practice — deliberately
+faster than the 200-300ms guidance for that specific interaction
+category, not an oversight). Two 500ms hover-zoom transitions
+(ProductCard/CampaignSection) are hover-gated and therefore dead code on
+touch devices (no hover state) — correctly out of scope for a mobile
+pass. The one real adjustment: the carousel's full-slide transition
+(500ms, and this one DOES run on mobile) nudged to 400ms — a deliberate
+middle ground rather than forcing the stricter 300ms, since a full-
+viewport slide transition is an established exception category in
+real-world carousel/slider design, not the kind of micro-interaction the
+200-300ms guidance is really aimed at.
+
+**Item 14 (Accessibility) — the most substantial work this batch**:
+- Color contrast: computed exact WCAG 2.1 contrast ratios (not eyeballed)
+  for every text/background color pair across all 4 themes via a Python
+  script. Found 2 real, measured failures: --color-muted at 4.14:1
+  (default) / 4.09:1 (ocean) against actual backgrounds — under the 4.5:1
+  AA threshold for normal text, which matters since this token is used at
+  caption sizes (11-12px) well below WCAG's large-text exception.
+  Darkened ~10% in exactly those two themes (dark/festive already passed
+  at 6.62:1 / 5.30:1, left untouched). White text on the raw
+  --color-secondary measured 2.15-3.28:1 across all 4 themes — but is
+  only ever used as background for two small badges (cart count,
+  discount %), not decoratively elsewhere in any theme, so added a new
+  --color-secondary-badge variant per theme (darkened until each clears
+  4.5:1) used only in those two spots — the main --color-secondary is
+  completely unchanged everywhere else it appears. All fixes
+  re-verified computationally after implementing (4.58-4.99:1 across the
+  board). This is the exact case requirement #15 itself carves out:
+  "keep the palette unchanged unless required for better usability."
+- Skip-to-content link added to the root layout (sr-only until keyboard
+  focus) — was entirely missing before this.
+- Sitewide :focus-visible style added (2px solid primary-color outline) —
+  before this, only .input-field had any custom focus treatment; every
+  button, link, and icon control relied on inconsistent browser defaults.
+  Uses :focus-visible specifically (not :focus) so it only appears for
+  keyboard navigation, never for mouse or touch taps.
+- Escape-key handling added to the header's mobile drawer (+ desktop
+  mega-menu/account dropdown) and to ConfirmBox — neither had any
+  keyboard-only way to dismiss before this.
+- Mobile drawer: plain div → semantic <nav aria-label="Mobile">, wrapping
+  container got role="dialog" aria-modal="true". Same role="dialog"
+  aria-modal="true" added to ConfirmBox. Header/nav/main/footer landmarks
+  were verified already correct from earlier work — not touched.
+
+Files touched: `src/components/Carousel.jsx` (hero banner revert + timing),
+`src/app/page.jsx` (FAQ), `src/app/products/page.jsx`,
+`src/app/category/[slug]/page.jsx`, `src/server/data/category.js`,
+`src/server/controllers/product.controller.js` (export only),
+`src/app/globals.css` (contrast fixes, focus-visible),
+`src/app/layout.jsx` (skip link), `src/components/Header.jsx`
+(Escape handling, semantic nav), `src/components/ConfirmBox.jsx`
+(Escape handling, dialog role), `src/app/forgot-password/page.jsx`
+(tiny inputMode gap). New file: `src/components/CategorySortControl.jsx`.
+
+**Scope note, explicitly flagged to the user rather than assumed**: the
+user's request list still includes "Dashboard" among components to
+optimize, but dropped the earlier "admin operatable" phrase from the
+final goal — read as a signal to keep focus on the storefront + customer
+account pages (Orders/User Account, listed separately from "Dashboard"),
+not the full admin panel (dozens of pages — site-settings, inventory,
+coupons, HR, analytics, etc. — plausibly as large as everything done
+across every batch so far, combined). Not silently assumed either way;
+stated as an explicit, correctable interpretation in the response to the
+user.
+
+Not yet done, disclosed rather than silently skipped: subCategory/search
+page sort, customer account pages (myorders/profile/address) mobile
+polish, InvoiceModal, a dedicated visual-consistency spot-check pass, and
+a broader responsiveness sweep beyond what earlier batches already
+covered. Wishlist: confirmed via search that no such feature exists
+anywhere in this codebase (no model, no component, no page) — not
+fabricated.
+
+Regression checked throughout: 225 files under src/ (231 including root
+config), 0 syntax errors, 0 import/export problems.
+
+---
+
+## Batch 21 — Mobile UI redesign (320px-768px), storefront only
+
+Scope: customer-facing storefront only, not /dashboard admin routes -
+nothing in the 10-part request referenced admin, and it's a separate,
+role-gated, desktop-oriented tool. Note: /dashboard/profile,
+/dashboard/address, /dashboard/myorders are actually CUSTOMER account
+pages living under that URL prefix (admin is a role-gated subset of
+/dashboard/*), but are one step removed from the core browse -> cart ->
+checkout flow the request explicitly named - deliberately deferred, not
+silently skipped (see below).
+
+Existing design system worked *with*, not replaced: the "liquid glass"
+aesthetic (backdrop-blur frosted surfaces), 4 CSS-variable themes, sage
+palette, and the site's own .btn-primary/.btn-outline/.input-field/
+.product-card component classes all stayed - fixed at the source where a
+sitewide standard was needed (button/input touch targets) rather than
+overridden per-usage, so the fix cascades correctly everywhere those
+classes are used.
+
+**Touch targets (44x44px minimum, requirement #6)**: found .btn-primary/
+.btn-outline/.input-field were relying on padding + inherited 1.6
+line-height, computing to ~38-42px - just under standard. Fixed with
+explicit min-height at the source in globals.css, cascades everywhere.
+Header hamburger/cart/account icons had *no* touch-target sizing at all
+(bare 24px icons, no padding) - fixed. Same for Footer social icons and
+newsletter form, PreferenceSelector's trigger (~31px, missed in the first
+Header pass since it's a separate component). AddToCartButton main
+button 36->44px; its quantity stepper (shared between product cards AND
+the cart page - confirmed via grep) 24->36px, documented as the one
+deliberate exception (a dense inline control that would look oversized at
+full size inside a ~136px-wide mobile card).
+
+**Layout/spacing (8px system, requirement #2)**: found py-8/py-10
+(32-40px) container padding on nearly every storefront page, exceeding
+the requested 16-24px vertical-section range. Fixed systematically across
+14 instances in 11 page files with a py-4 lg:py-8 pattern - transition
+at lg (1024px) rather than md (768px) so the *entire* requested
+320-768px range gets the tightened spacing. Product grid gaps 16->12px
+mobile (verified via actual math that a 2-column mobile grid produces
+~136px-wide cards at 320px viewport, so every pixel matters). Footer
+gap-8 (32px between STACKED single-column mobile sections) tightened.
+
+**Typography (requirement #3)**: found the real homepage hero lives in
+Carousel.jsx (not inline in page.jsx) at text-3xl md:text-5xl
+(30->48px), above the requested 24-28px hero range - tightened to
+text-2xl sm:text-3xl md:text-5xl. Also found and fixed a layout issue
+paired with it: the hero's aspect-[3/1] made it only ~107px tall at a
+320px viewport width, cramped for title+subtitle+button - now
+aspect-[4/3] sm:aspect-[21/9] (taller on mobile, original wide-banner
+proportions from sm: up). Section titles (section-heading text-xl =
+20px) were already correctly within the 18-22px range - verified, not
+changed.
+
+**Navigation (requirement #4)**: mobile drawer touch targets fixed
+(links/close button/category-expand all ->44px row height), width changed
+from a fixed 288px to 82vw/max-w-80 (adapts across the 320-768 range
+instead of one fixed size). hover: states changed to active: on
+touch-only surfaces - no real hover on a touchscreen. Search bar kept as
+a persistent, always-visible row (not hidden behind a toggle) - for
+e-commerce specifically, zero-tap search access was judged more valuable
+than the height savings a collapse would give, a deliberate trade-off
+against "reduce navbar height if possible" being phrased as conditional.
+
+**Product cards (requirement #5)**: padding/type sizes tightened to
+spec. Found and fixed a **real overflow bug**: the low-stock badge had no
+max-width/truncate safeguard (unlike the campaign badge right next to it
+in the same file) and its text could genuinely push past the card edge at
+~136px card width - fixed with a max-width + truncate + shorter
+mobile-specific copy. **Rating**: this codebase has no rating/review
+system anywhere - no model, no data, confirmed via grep in both
+directions before concluding this, not assumed. Did NOT fabricate stars;
+added a conditional display that renders only if product.rating is ever
+real data, so the card is ready for a future backend feature without
+further layout change. Same finding applies to PDP "make reviews easier
+to read" (requirement #10) - nothing exists to act on; disclosing rather
+than silently skipping.
+
+**Forms (requirement #7)**: .input-field min-height fixed at the
+source (same pattern as buttons). Login/register: added
+inputMode/autoComplete for correct mobile keyboards on
+email/tel/name fields. Found and fixed a real overflow risk: the OTP
+input's text-2xl + tracking-[0.5em] on 6 characters inside a p-8
+modal was razor-thin-to-overflowing at a 320px viewport by direct
+character-width math - reduced tracking/size on mobile, full size from
+sm: up.
+
+**Cart & Checkout (requirement #9)**: cart item card **restructured**,
+not just restyled - the original single 3-column row (image + text +
+button-column) left the text column only ~36px wide at 320px by the same
+kind of width math used above (flex's min-w-0 prevented actual page
+overflow, but the text would have been nearly unreadable). Now the
+quantity stepper sits in its own full-width row below the text on
+mobile, reverting to the original single-row layout from sm: up where
+there's room for it. Both cart and checkout: the order summary's
+sticky top-24 didn't serve its purpose once mobile stacks to a single
+column - scoped to lg:sticky lg:top-24, paired with a genuine mobile
+fixed-bottom sticky checkout/submit bar (env(safe-area-inset-bottom)
+handled, matching bottom page padding so content doesn't hide behind it)
+- this is what requirement #9's "sticky checkout button" and
+requirement #7's "sticky submit button where appropriate" actually asked
+for, not a whole sticky card that doesn't stick to anything on a
+single-column layout.
+
+**Product Detail Page (requirement #10)**: found and fixed a **real,
+significant bug** in ProductGallery.jsx - the prev/next navigation
+buttons were opacity-0 group-hover:opacity-100, meaning completely
+invisible except on :hover. Touch devices have no hover state, so these
+buttons were invisible AND unusable on every phone/tablet; the thumbnail
+strip was the only way to change images. Fixed: visible by default on
+mobile, hover-reveal preserved for desktop only. Added swipe-to-browse
+(plain touch event handlers, no new dependency, 40px threshold) and
+mobile position dots. Added the requested sticky mobile Add-to-Cart +
+Buy-Now bar (same fixed-bottom pattern as cart/checkout); the inline pair
+hidden on mobile to avoid a redundant duplicate. Specs <dl> was
+unconditionally grid-cols-2 (cramped for potentially long values at
+320px) - now grid-cols-1 sm:grid-cols-2.
+
+**Images (requirement #8)**: verified, not changed - SafeImage.jsx is
+already a well-built next/image wrapper, lazy-loading by default,
+priority correctly reserved for genuine above-the-fold LCP candidates
+(PDP main image, hero banner's first slide, header logo), sizes
+attributes present at every usage checked. Grepped the whole storefront
+for any raw <img> tag that might have bypassed this - none found (the
+one match was a comment, not real code).
+
+**Verification method** (same honesty standard as every batch before
+this): no live browser or network in this sandbox, so nothing here was
+visually screenshotted or measured on a real device. Verified instead via
+(a) the existing static syntax/import-export checkers, re-run clean after
+every file changed - final count 224 files, 0/0; (b) direct pixel/rem
+math for every touch-target and overflow-risk claim above, not just
+"this looks about right"; (c) systematic grep sweeps for overflow-risk
+patterns (fixed px widths >=300px, min-w-[Npx], whitespace-nowrap
+contexts) across the whole storefront, each hit individually traced to
+confirm real risk vs. false alarm. One item flagged for real-device
+follow-up rather than claimed as certain: the header's right-side icon
+cluster (currency/cart/login) at exactly 320px width with the text-logo
+fallback - the flexible elements (logo via min-w-0+truncate,
+PreferenceSelector, login button) will compress rather than force page
+overflow, by flexbox's own default behavior, but exactly how the logo
+truncates at the tightest real-world width combination is worth an actual
+320px-device check.
+
+Files touched: src/app/globals.css, src/components/Header.jsx,
+src/components/Footer.jsx, src/components/ProductCard.jsx,
+src/components/AddToCartButton.jsx, src/components/ProductGallery.jsx,
+src/components/ProductPurchasePanel.jsx, src/components/Carousel.jsx,
+src/components/PreferenceSelector.jsx, src/app/cart/page.jsx,
+src/app/checkout/page.jsx, src/app/login/page.jsx,
+src/app/register/page.jsx, src/app/product/[product]/page.jsx, and
+container-padding-only edits to src/app/page.jsx,
+src/app/category/page.jsx, src/app/category/[slug]/page.jsx,
+src/app/[category]/[subCategory]/page.jsx, src/app/products/page.jsx,
+src/app/search/page.jsx, src/app/sitemap/page.jsx,
+src/app/banner-page/[id]/page.jsx.
+
+Not done, disclosed rather than silently skipped: /dashboard/profile,
+/dashboard/address, /dashboard/myorders (customer account pages, one
+step removed from the core flow this request named); rating/review UI
+data (no backend model exists - see Product Cards / PDP above); the
+header-width real-device check noted above.
+
+---
+
 ## Batch 20 (in progress) — Theme/language persistence bug (real fix) + fresh full audit + Sections 16/18/19/20
 
 User reported (again): theme/language reverts to default after a refresh.

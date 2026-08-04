@@ -19,7 +19,7 @@ export default function Footer() {
 
   return (
     <footer style={{ backgroundColor: "var(--color-footer-bg)", color: "var(--color-footer-text)" }} className="mt-auto">
-      <div className="container mx-auto px-4 py-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8 text-sm">
+      <div className="container mx-auto px-3 sm:px-4 py-6 lg:py-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8 text-sm">
         {/* Col 1: Brand / About */}
         <div className="sm:col-span-2 md:col-span-1">
           {settings.logo
@@ -87,13 +87,13 @@ export default function Footer() {
         {/* Col 4: Social */}
         <div>
           <h4 className="font-semibold mb-4 uppercase tracking-widest text-xs opacity-60">{col3Title}</h4>
-          <div className="flex gap-4 text-xl mb-5">
-            {social.facebook  && <a href={safeExternalUrl(social.facebook)}  target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Facebook"><FaFacebook /></a>}
-            {social.instagram && <a href={safeExternalUrl(social.instagram)} target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Instagram"><FaInstagram /></a>}
-            {social.twitter   && <a href={safeExternalUrl(social.twitter)}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="Twitter"><FaTwitter /></a>}
-            {social.youtube   && <a href={safeExternalUrl(social.youtube)}   target="_blank" rel="noreferrer" className="opacity-70 hover:opacity-100 transition-opacity" aria-label="YouTube"><FaYoutube /></a>}
+          <div className="flex gap-1 text-xl mb-4 -ml-2.5">
+            {social.facebook  && <a href={safeExternalUrl(social.facebook)}  target="_blank" rel="noreferrer" className="h-11 w-11 flex items-center justify-center opacity-70 active:opacity-100 transition-opacity" aria-label="Facebook"><FaFacebook /></a>}
+            {social.instagram && <a href={safeExternalUrl(social.instagram)} target="_blank" rel="noreferrer" className="h-11 w-11 flex items-center justify-center opacity-70 active:opacity-100 transition-opacity" aria-label="Instagram"><FaInstagram /></a>}
+            {social.twitter   && <a href={safeExternalUrl(social.twitter)}   target="_blank" rel="noreferrer" className="h-11 w-11 flex items-center justify-center opacity-70 active:opacity-100 transition-opacity" aria-label="Twitter"><FaTwitter /></a>}
+            {social.youtube   && <a href={safeExternalUrl(social.youtube)}   target="_blank" rel="noreferrer" className="h-11 w-11 flex items-center justify-center opacity-70 active:opacity-100 transition-opacity" aria-label="YouTube"><FaYoutube /></a>}
             {!social.facebook && !social.instagram && !social.twitter && !social.youtube && (
-              <p className="opacity-50 text-sm">No social links yet.</p>
+              <p className="opacity-50 text-sm ml-2.5">No social links yet.</p>
             )}
           </div>
 
@@ -103,10 +103,12 @@ export default function Footer() {
               <div className="flex gap-2">
                 <input
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
                   placeholder="your@email.com"
-                  className="flex-1 px-3 py-1.5 rounded-lg text-sm bg-white/10 border border-white/20 text-inherit placeholder:opacity-50 outline-none focus:border-white/40"
+                  className="flex-1 min-w-0 h-11 px-3 rounded-lg text-sm bg-white/10 border border-white/20 text-inherit placeholder:opacity-50 outline-none focus:border-white/40"
                 />
-                <button className="px-3 py-1.5 rounded-lg bg-theme-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity">
+                <button className="h-11 px-4 shrink-0 rounded-lg bg-theme-primary text-white text-xs font-semibold active:opacity-90 transition-opacity">
                   Go
                 </button>
               </div>

@@ -25,7 +25,7 @@ function SearchResults() {
   }, [q]);
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
       <h1 className="section-heading text-2xl mb-1">
         {q ? `Results for "${q}"` : "Search"}
       </h1>
@@ -38,7 +38,7 @@ function SearchResults() {
         <NoData message={`No results for "${q}"`} description="Try different keywords" />
       )}
       {!loading && products.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
           {products.map((p) => <ProductCard key={p._id} product={p} />)}
         </div>
       )}

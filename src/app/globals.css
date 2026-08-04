@@ -15,6 +15,24 @@
  * once. */
 
 /* ─── CSS Variable Themes ───────────────────────────────────── */
+/* Accessibility pass (requirement #14 — "sufficient color contrast"):
+   computed exact WCAG 2.1 contrast ratios for every text/background pair
+   in all 4 themes before touching anything (not eyeballed). Two real,
+   measured failures, both fixed with the smallest possible change:
+   --color-muted was 4.14:1 (default) / 4.09:1 (ocean) against its actual
+   backgrounds — just under the 4.5:1 AA threshold for normal text, which
+   matters here since this token is used at caption sizes (11-12px) well
+   below WCAG's "large text" exception. Darkened ~10% in exactly those two
+   themes (dark and festive already passed, 6.62:1 / 5.30:1 — left alone).
+   White text on raw --color-secondary measured 2.15-3.28:1 across all 4
+   themes (fails even the lenient 3:1 UI-component threshold) — but this
+   is only ever used as background for two small badges (cart count,
+   discount %), not decoratively elsewhere, so a new --color-secondary-badge
+   variant (darkened until each theme clears 4.5:1) fixes exactly those
+   two spots without touching how --color-secondary looks anywhere else
+   it's actually used across the site. Per requirement #15's own explicit
+   allowance: "keep the color palette unchanged unless required for
+   better usability" — this is that exact, narrow case. */
 :root,
 [data-theme="default"] {
   --color-bg:          #FAFAF8;
@@ -23,8 +41,9 @@
   --color-primary:     #4A7860;
   --color-primary-h:   #3A6350;
   --color-secondary:   #C08040;
+  --color-secondary-badge: #9D6834; /* white-text contrast fix, see note above */
   --color-text:        #1C1C1A;
-  --color-muted:       #7A7A72;
+  --color-muted:       #6D6D66; /* contrast fix, see note above (was #7A7A72) */
   --color-header-bg:   #FFFFFF;
   --color-footer-bg:   #1C1C1A;
   --color-footer-text: #E6E2DC;
@@ -37,6 +56,7 @@
   --color-primary:     #62a07f;
   --color-primary-h:   #4A7860;
   --color-secondary:   #d4974e;
+  --color-secondary-badge: #986C38; /* white-text contrast fix, see note above */
   --color-text:        #ECECE8;
   --color-muted:       #9A9A90;
   --color-header-bg:   #161816;
@@ -51,8 +71,9 @@
   --color-primary:     #1E6FA8;
   --color-primary-h:   #155889;
   --color-secondary:   #F59E0B;
+  --color-secondary-badge: #A16807; /* white-text contrast fix, see note above */
   --color-text:        #0F2537;
-  --color-muted:       #5A7C96;
+  --color-muted:       #506F87; /* contrast fix, see note above (was #5A7C96) */
   --color-header-bg:   #FFFFFF;
   --color-footer-bg:   #0F2537;
   --color-footer-text: #C8DEEF;
@@ -65,6 +86,7 @@
   --color-primary:     #C0392B;
   --color-primary-h:   #A02820;
   --color-secondary:   #E67E22;
+  --color-secondary-badge: #AE5F19; /* white-text contrast fix, see note above */
   --color-text:        #1A0A00;
   --color-muted:       #8B5E3C;
   --color-header-bg:   #FFFFFF;
@@ -85,6 +107,21 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     min-height: 100dvh;
+  }
+
+  /* Accessibility pass (requirement #14 — "keyboard accessibility" /
+     WCAG 2.4.7 "Focus Visible"): before this, only .input-field had any
+     custom focus treatment — every button, link, and icon control relied
+     on whatever each browser's own default outline happens to look like,
+     which is inconsistent and often clips awkwardly against rounded
+     pill-shaped buttons. :focus-visible (not :focus) specifically means
+     this only appears for keyboard navigation, not mouse/touch clicks —
+     the standard modern approach, so clicking a button with a mouse never
+     shows a ring, but Tab-ing to it always does. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
@@ -154,12 +191,17 @@
   }
 
   /* ─── Input ─────────────────────────────────────────────────── */
+  /* Mobile UI pass: added min-height (44px, same standard as buttons) —
+     previously relied on padding + inherited 1.6 line-height, which
+     computed to ~38px, notably under the touch-target standard and also
+     just visually small for typing on a touchscreen keyboard. */
   .input-field {
     width: 100%;
+    min-height: 2.75rem; /* 44px */
     border: 1px solid var(--color-border);
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    border-radius: 0.625rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.9375rem; /* 15px — top of the 13-15px body-text range, since this is what a person is actively typing into */
     background: var(--color-surface);
     color: var(--color-text);
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -217,8 +259,20 @@
   .password-toggle-btn:hover { color: var(--color-primary); }
 
   /* ─── Button ────────────────────────────────────────────────── */
-  /* Fix 22: Liquid glass primary button */
+  /* Fix 22: Liquid glass primary button.
+     Mobile UI pass: added min-height + inline-flex centering to all three
+     button classes below (.btn-primary/.btn-outline/.btn-add-to-cart).
+     Previously these relied on padding + inherited body line-height
+     (1.6) to reach a tall-enough tap target — that worked out to ~42px,
+     just under the 44px minimum touch target. min-height guarantees 44px
+     regardless of font metrics, and inline-flex centering keeps the label
+     vertically centered even when min-height is taller than padding+text
+     alone would produce (e.g. very short labels). */
   .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem; /* 44px */
     background: linear-gradient(135deg,
       color-mix(in srgb, var(--color-primary) 90%, white) 0%,
       var(--color-primary) 50%,
@@ -231,7 +285,7 @@
     border: 1px solid color-mix(in srgb, var(--color-primary) 60%, white 40%);
     cursor: pointer;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 8px color-mix(in srgb, var(--color-primary) 30%, transparent);
-    transition: all 0.2s cubic-bezier(.22,1,.36,1);
+    transition: transform 0.15s cubic-bezier(.22,1,.36,1), box-shadow 0.2s ease, background 0.2s ease;
     backdrop-filter: blur(4px);
   }
   .btn-primary:hover {
@@ -239,17 +293,21 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 6px 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
     transform: translateY(-1px);
   }
-  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:active { transform: translateY(0) scale(0.97); }
   .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
   .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem; /* 44px — same standard as .btn-primary */
     border: 1.5px solid var(--color-primary);
     color: var(--color-primary);
     border-radius: 9999px;
     padding: 0.625rem 1.5rem;
     font-size: 0.875rem;
     font-weight: 600;
-    transition: all 0.15s;
+    transition: transform 0.15s cubic-bezier(.22,1,.36,1), background-color 0.15s ease, color 0.15s ease;
     background: transparent;
     cursor: pointer;
   }
@@ -257,6 +315,7 @@
     background-color: var(--color-primary);
     color: #fff;
   }
+  .btn-outline:active { transform: scale(0.97); }
 
   /* ─── Admin action button group ─────────────────────────────────
      Wrapper for any row of icon-btn / row-action-btn elements that
@@ -389,6 +448,14 @@
     max-height: 90dvh;
     overflow-y: auto;
     animation: slideUp 0.25s ease;
+  }
+  /* Mobile UI pass: 1.5rem (24px) padding here, combined with the overlay's
+     own 1rem (16px) inset, left only ~240px of actual content width at a
+     320px viewport — workable but tighter than it needs to be. Every
+     .modal-box consumer that doesn't explicitly override padding (like
+     login/register's p-5 sm:p-8 override does) benefits from this. */
+  @media (max-width: 480px) {
+    .modal-box { padding: 1.25rem; border-radius: 1rem; }
   }
 
   /* ─── Carousel dots ─────────────────────────────────────────── */

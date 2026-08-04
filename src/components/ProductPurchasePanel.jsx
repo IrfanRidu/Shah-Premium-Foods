@@ -67,11 +67,11 @@ export default function ProductPurchasePanel({ product }) {
     <>
       {/* Price */}
       <div className="flex items-baseline gap-3 flex-wrap">
-        <span className={`text-3xl font-bold ${isCampaign ? "text-red-500" : "text-theme-primary"}`}>
+        <span className={`text-2xl sm:text-3xl font-bold ${isCampaign ? "text-red-500" : "text-theme-primary"}`}>
           {displayPrice(discounted, currency, rates)}
         </span>
         {activeDiscount > 0 && <>
-          <span className="text-lg text-theme-muted line-through">{displayPrice(product.price, currency, rates)}</span>
+          <span className="text-base sm:text-lg text-theme-muted line-through">{displayPrice(product.price, currency, rates)}</span>
           <span className="badge">{activeDiscount}% off</span>
         </>}
       </div>
@@ -84,14 +84,35 @@ export default function ProductPurchasePanel({ product }) {
           : <span className="inline-block bg-green-100 text-green-600 text-xs font-semibold px-3 py-1 rounded-full">In Stock</span>
       }
 
-      {/* CTA buttons */}
+      {/* CTA buttons — hidden on mobile in favor of the sticky bottom bar
+          below, so there isn't a redundant second pair of buttons a
+          scroll away from the one that's always reachable. Still the
+          primary (only) CTA position from lg: up. */}
       {product.stock > 0 && (
-        <div className="flex gap-3 flex-wrap">
+        <div className="hidden lg:flex gap-3 flex-wrap">
           <div className="flex-1 min-w-[140px]"><AddToCartButton product={product} /></div>
           <button onClick={handleBuyNow} disabled={buying}
             className="flex-1 min-w-[140px] flex items-center justify-center gap-2 btn-primary py-2 text-sm disabled:opacity-60">
             <FaShoppingCart size={14} />
             {buying ? "Adding…" : "Buy Now"}
+          </button>
+        </div>
+      )}
+
+      {/* Mobile sticky Add to Cart + Buy Now bar — both requested
+          explicitly. Fixed to the viewport bottom so they're reachable
+          with one thumb from anywhere on what can be a long page once
+          description/specs/campaigns/suggestions are scrolled through.
+          The page itself (product/[product]/page.jsx) carries matching
+          bottom padding so this never covers the last section's content. */}
+      {product.stock > 0 && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-[var(--color-header-bg)] border-t border-theme px-3 py-2.5 flex gap-2.5"
+          style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}>
+          <div className="flex-1 min-w-0"><AddToCartButton product={product} /></div>
+          <button onClick={handleBuyNow} disabled={buying}
+            className="flex-1 min-w-0 flex items-center justify-center gap-2 btn-primary disabled:opacity-60">
+            <FaShoppingCart size={14} className="shrink-0" />
+            <span className="truncate">{buying ? "Adding…" : "Buy Now"}</span>
           </button>
         </div>
       )}

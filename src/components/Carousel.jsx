@@ -55,7 +55,7 @@ export default function Carousel({ banners = [] }) {
 
   if (!banners.length) {
     return (
-      <div className="w-full aspect-[3/1] bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-h)] flex items-center justify-center rounded-2xl relative overflow-hidden">
+      <div className="w-full aspect-[3/1] min-h-[180px] bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-h)] flex items-center justify-center rounded-2xl relative overflow-hidden">
         <div className="absolute inset-0 opacity-10"
           style={{ backgroundImage: "radial-gradient(circle at 20% 80%, white 1px, transparent 1px), radial-gradient(circle at 80% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
         <div className="text-center text-white px-6 relative z-10">
@@ -63,7 +63,7 @@ export default function Carousel({ banners = [] }) {
           <p className="text-lg opacity-80 mb-6">Fresh groceries delivered to your door</p>
           <button
             onClick={() => router.push("/products")}
-            className="bg-white/20 backdrop-blur-sm border border-white/40 text-white font-bold px-8 py-3 rounded-full hover:bg-white/30 transition-all text-sm"
+            className="bg-white/20 backdrop-blur-sm border border-white/40 text-white font-bold px-8 py-3 rounded-full hover:bg-white/30 active:scale-95 transition-all text-sm"
           >
             Shop Now →
           </button>
@@ -76,7 +76,7 @@ export default function Carousel({ banners = [] }) {
     <div className="relative w-full overflow-hidden rounded-2xl group" role="region" aria-label="Hero banner">
       {/* Slides */}
       <div
-        className="flex transition-transform duration-500 ease-in-out"
+        className="flex transition-transform duration-[400ms] ease-in-out"
         style={{ transform: `translateX(-${idx * 100}%)` }}
       >
         {slides.map((slide, i) => {
@@ -87,7 +87,7 @@ export default function Carousel({ banners = [] }) {
           const landingHref = bannerLandingHref(slide);
 
           return (
-            <div key={i} className="w-full shrink-0 aspect-[3/1] bg-[var(--color-surface)] relative">
+            <div key={i} className="w-full shrink-0 aspect-[3/1] min-h-[180px] bg-[var(--color-surface)] relative">
               {useVideo ? (
                 <video
                   ref={i === idx ? videoRef : undefined}
@@ -121,17 +121,17 @@ export default function Carousel({ banners = [] }) {
                 <div className="absolute inset-0 flex items-end justify-start p-6 sm:p-10 bg-gradient-to-t from-black/50 via-black/10 to-transparent">
                   <div className="space-y-3 max-w-lg">
                     {slide?.title && (
-                      <h2 className="text-white font-display text-2xl sm:text-4xl font-bold drop-shadow-lg">{slide.title}</h2>
+                      <h2 className="text-white font-display text-2xl sm:text-4xl font-bold drop-shadow-lg line-clamp-2">{slide.title}</h2>
                     )}
                     {slide?.subtitle && (
-                      <p className="text-white/90 text-sm sm:text-base drop-shadow">{slide.subtitle}</p>
+                      <p className="text-white/90 text-sm sm:text-base drop-shadow line-clamp-2">{slide.subtitle}</p>
                     )}
                     {btnText && (
                       <button
                         onClick={(e) => { e.stopPropagation(); router.push(landingHref); }}
-                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-bold text-sm transition-all
+                        className="inline-flex items-center gap-2 px-6 min-h-11 py-2.5 rounded-full font-bold text-sm transition-all
                           bg-white/20 backdrop-blur-md border border-white/50 text-white
-                          hover:bg-white hover:text-[var(--color-primary)] shadow-lg"
+                          hover:bg-white hover:text-[var(--color-primary)] active:scale-95 shadow-lg"
                       >
                         {btnText}
                       </button>
