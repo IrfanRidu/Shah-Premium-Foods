@@ -47,6 +47,11 @@ const api = {
   getAddress:            { url: "/api/address/get",              method: "get"  },
   updateAddress:         { url: "/api/address/update",           method: "put"  },
   deleteAddress:         { url: "/api/address/delete",           method: "delete"},
+
+  getWishlist:           { url: "/api/wishlist/list",            method: "get"  },
+  addToWishlist:         { url: "/api/wishlist/add",              method: "post" },
+  removeFromWishlist:    { url: "/api/wishlist/remove",           method: "delete"},
+  toggleWishlist:        { url: "/api/wishlist/toggle",           method: "post" },
   cashOnDeliveryOrder:   { url: "/api/order/cash-on-delivery",   method: "post" },
   payCodDeliveryCharge:  { url: "/api/order/pay-delivery-charge",method: "post" },
   checkoutOrder:         { url: "/api/order/checkout",           method: "post" },
@@ -85,6 +90,7 @@ const api = {
   deleteCoupon:          { url: "/api/coupons/delete",           method: "delete"},
   // Analytics
   getDashboardMetrics:   { url: "/api/analytics/dashboard",      method: "get"  },
+  getDashboardOverview:  { url: "/api/analytics/overview",       method: "get"  },
   getTrending:           { url: "/api/analytics/trending",       method: "get"  },
   getBestSelling:        { url: "/api/analytics/best-selling",   method: "get"  },
   getLowSelling:         { url: "/api/analytics/low-selling",    method: "get"  },
@@ -152,6 +158,7 @@ const api = {
   // Fix 26: HR & Payroll
   getEmployees:          { url: "/api/hr-payroll/employees",     method: "get"  },
   createEmployee:        { url: "/api/hr-payroll/employees",     method: "post" },
+  createEmployeeWithLogin: { url: "/api/hr-payroll/employees-with-login", method: "post" },
   updateEmployee:        { url: "/api/hr-payroll/employees",     method: "put"  },
   deleteEmployee:        { url: "/api/hr-payroll/employees",     method: "delete"},
   getPayroll:            { url: "/api/hr-payroll/payroll",       method: "get"  },

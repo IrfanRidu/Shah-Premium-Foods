@@ -9,6 +9,7 @@ import { displayPrice, priceWithDiscount } from "@/lib/utils";
 import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import AddToCartButton from "./AddToCartButton";
+import WishlistButton from "./WishlistButton";
 import toast from "react-hot-toast";
 
 // Extracted from the old (fully client-rendered) product/[product]/page.jsx.
@@ -89,13 +90,14 @@ export default function ProductPurchasePanel({ product }) {
           scroll away from the one that's always reachable. Still the
           primary (only) CTA position from lg: up. */}
       {product.stock > 0 && (
-        <div className="hidden lg:flex gap-3 flex-wrap">
+        <div className="hidden lg:flex gap-3 flex-wrap items-stretch">
           <div className="flex-1 min-w-[140px]"><AddToCartButton product={product} /></div>
           <button onClick={handleBuyNow} disabled={buying}
             className="flex-1 min-w-[140px] flex items-center justify-center gap-2 btn-primary py-2 text-sm disabled:opacity-60">
             <FaShoppingCart size={14} />
             {buying ? "Adding…" : "Buy Now"}
           </button>
+          <WishlistButton productId={product._id} variant="inline" size={16} className="border border-theme" />
         </div>
       )}
 
@@ -114,6 +116,7 @@ export default function ProductPurchasePanel({ product }) {
             <FaShoppingCart size={14} className="shrink-0" />
             <span className="truncate">{buying ? "Adding…" : "Buy Now"}</span>
           </button>
+          <WishlistButton productId={product._id} variant="inline" size={16} className="border border-theme shrink-0" />
         </div>
       )}
     </>

@@ -3,16 +3,18 @@ import auth from "@/server/middlewares/auth";
 import { checkPermission } from "@/server/middlewares/permission";
 import {
   listEmployeesController, createEmployeeController, updateEmployeeController, deleteEmployeeController,
+  createEmployeeWithLoginController,
   listPayrollController, upsertPayrollController,
 } from "@/server/controllers/hrPayroll.controller";
 
 const ROUTES = {
-  "GET:/employees":        [[auth, checkPermission("hrPayroll", "view")], listEmployeesController],
-  "POST:/employees":       [[auth, checkPermission("hrPayroll", "edit")], createEmployeeController],
-  "PUT:/employees":        [[auth, checkPermission("hrPayroll", "edit")], updateEmployeeController],
-  "DELETE:/employees":     [[auth, checkPermission("hrPayroll", "edit")], deleteEmployeeController],
-  "GET:/payroll":          [[auth, checkPermission("hrPayroll", "view")], listPayrollController],
-  "POST:/payroll":         [[auth, checkPermission("hrPayroll", "edit")], upsertPayrollController],
+  "GET:/employees":             [[auth, checkPermission("hrPayroll", "view")], listEmployeesController],
+  "POST:/employees":            [[auth, checkPermission("hrPayroll", "edit")], createEmployeeController],
+  "POST:/employees-with-login": [[auth, checkPermission("hrPayroll", "edit")], createEmployeeWithLoginController],
+  "PUT:/employees":             [[auth, checkPermission("hrPayroll", "edit")], updateEmployeeController],
+  "DELETE:/employees":          [[auth, checkPermission("hrPayroll", "edit")], deleteEmployeeController],
+  "GET:/payroll":               [[auth, checkPermission("hrPayroll", "view")], listPayrollController],
+  "POST:/payroll":              [[auth, checkPermission("hrPayroll", "edit")], upsertPayrollController],
 };
 
 // Fix 3: without this, Next.js can statically cache this route's

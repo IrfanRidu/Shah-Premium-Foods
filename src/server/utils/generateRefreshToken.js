@@ -11,7 +11,7 @@ const DEFAULT_EXPIRE = "7d";
 // providers/IdleLogoutProvider.jsx) — this bounds total session duration
 // regardless of activity; idle logout separately bounds duration of
 // INactivity specifically. Different failure mode, both worth having.
-const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN", "DEMO_ADMIN"]);
 const ADMIN_DEFAULT_EXPIRE = process.env.ADMIN_REFRESH_TOKEN_EXPIRE || "4h";
 
 function parseDurationToMs(str) {

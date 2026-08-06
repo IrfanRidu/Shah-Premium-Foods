@@ -60,9 +60,11 @@ startup, so changes never take effect on a server that's already running.
 ```bash
 npm run seed
 ```
-This creates 5 categories, 20 subcategories, 100 sample products, campaigns, coupons, delivery zones, and a superadmin account:
-- **Email:** `admin@shahpremiumfoods.com`
-- **Password:** `Admin@123`
+This creates 5 categories, 20 subcategories, 100 sample products, campaigns, coupons, delivery zones, and demo accounts for every role. The two you'll likely want first:
+- **Super Admin** — `superadmin@shahpremiumfoods.com` / `Super@123` (full access to everything)
+- **Demo Admin** — `demoadmin@shahpremiumfoods.com` / `Demo@1234` (same full dashboard access to click through, but every action is simulated — nothing it does ever touches real data, safe to hand to anyone for a tour)
+
+See `src/server/seed/seed.js` (`demoUsers`) for the full list, including Admin, HR, Manager, Staff, Analyst and sample Customer logins.
 
 ### 4. Run the development server
 ```bash

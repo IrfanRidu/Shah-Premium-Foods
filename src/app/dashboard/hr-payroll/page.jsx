@@ -17,31 +17,60 @@ const STATUS_COLOR = {
   Terminated: "bg-red-100 text-red-700",
 };
 const TYPES = ["Full-time", "Part-time", "Contract", "Intern"];
+// Must exactly match PROVISIONABLE_ROLES in hrPayroll.controller.js — kept
+// as a fixed, safe list rather than pulling every role from the Roles &
+// Staff page, so this form can never accidentally offer to hand out
+// ADMIN/SUPERADMIN access. Call Center Agent isn't listed here on
+// purpose — it already has its own dedicated flow on the Customer Care
+// page; use that instead of duplicating it here.
+const PROVISIONABLE_ROLES = [
+  { value: "HR",      label: "HR" },
+  { value: "MANAGER", label: "Manager" },
+  { value: "STAFF",   label: "Staff" },
+  { value: "ANALYST", label: "Analyst" },
+];
 
 const emptyForm = {
   _id: null, name: "", email: "", phone: "", designation: "", department: "",
   employmentType: "Full-time", monthlySalary: "", status: "Active", bankAccount: "", notes: "",
+  createLogin: false, roleName: "HR", password: "",
 };
 
 function EmployeeModal({ initial, onClose, onSaved }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
+  const [credentials, setCredentials] = useState(null); // { email, tempPassword, roleName } once created with a login
   const isEdit = !!initial._id;
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error("Name is required"); return; }
+    if (form.createLogin && !isEdit && !form.email.trim()) { toast.error("Email is required to create a dashboard login"); return; }
     try {
       setSaving(true);
       const payload = { ...form, monthlySalary: Number(form.monthlySalary) || 0 };
-      const r = await Axios(
-        isEdit ? { ...api.updateEmployee, data: payload } : { ...api.createEmployee, data: payload }
-      );
-      if (r.data?.success) {
-        toast.success(isEdit ? "Employee updated" : "Employee added");
-        onSaved();
-        onClose();
+      if (form.createLogin && !isEdit) {
+        const r = await Axios({ ...api.createEmployeeWithLogin, data: payload });
+        if (r.data?.success) {
+          // isDemoAction (Demo Admin): the simulated response has no real
+          // tempPassword to show — skip the credentials panel and just
+          // close normally, same as any other simulated save.
+          if (r.data.isDemoAction) { toast.success(r.data.message); onSaved(); onClose(); return; }
+          toast.success(r.data.message || "Employee added with a dashboard login");
+          setCredentials({ email: payload.email, tempPassword: r.data.tempPassword, roleName: payload.roleName });
+          onSaved();
+          return; // stay open — the temp password below is only ever shown this once
+        }
+      } else {
+        const r = await Axios(
+          isEdit ? { ...api.updateEmployee, data: payload } : { ...api.createEmployee, data: payload }
+        );
+        if (r.data?.success) {
+          toast.success(isEdit ? "Employee updated" : "Employee added");
+          onSaved();
+          onClose();
+        }
       }
     } catch (err) {
       axiosToastError(err);
@@ -49,6 +78,31 @@ function EmployeeModal({ initial, onClose, onSaved }) {
       setSaving(false);
     }
   };
+
+  // One-time credentials panel — replaces the form once a login has been
+  // created, since the temp password genuinely can't be retrieved again
+  // after this (it's stored hashed, same as any real password).
+  if (credentials) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+        <div className="bg-[var(--color-surface)] rounded-2xl w-full max-w-sm p-6 text-center">
+          <h2 className="font-display text-lg font-semibold mb-1">Login created</h2>
+          <p className="text-sm text-theme-muted mb-4">
+            Share these with {form.name.split(" ")[0] || "them"} now — the password can't be shown again after you close this.
+          </p>
+          <div className="bg-[var(--color-bg)] border border-theme rounded-xl p-3 text-left space-y-1.5 mb-5">
+            <p className="text-xs text-theme-muted">Role</p>
+            <p className="font-semibold text-sm mb-2">{credentials.roleName}</p>
+            <p className="text-xs text-theme-muted">Email</p>
+            <p className="font-mono text-sm mb-2 break-all">{credentials.email}</p>
+            <p className="text-xs text-theme-muted">Temporary password</p>
+            <p className="font-mono text-sm font-bold break-all">{credentials.tempPassword}</p>
+          </div>
+          <button onClick={onClose} className="btn-primary px-5 py-2 text-sm w-full">Done</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
@@ -99,6 +153,37 @@ function EmployeeModal({ initial, onClose, onSaved }) {
             <label className="block text-sm font-medium mb-1.5">Notes</label>
             <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className="input-field resize-none" />
           </div>
+
+          {/* Employee "types" — "HR, Call center agent, and others which
+              Super admin, HR, admin can add." Call Center Agent has its
+              own flow on the Customer Care page; this covers the rest.
+              Only offered when adding someone new — retrofitting a login
+              onto an existing HR-only record isn't handled by this form. */}
+          {!isEdit && (
+            <div className="sm:col-span-2 border-t border-theme pt-3 mt-1">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                <input type="checkbox" checked={form.createLogin} onChange={(e) => set("createLogin", e.target.checked)} className="h-4 w-4" />
+                Also create a dashboard login for this person
+              </label>
+              {form.createLogin && (
+                <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Employee Type (role)</label>
+                    <select value={form.roleName} onChange={(e) => set("roleName", e.target.value)} className="input-field">
+                      {PROVISIONABLE_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Initial Password</label>
+                    <input value={form.password} onChange={(e) => set("password", e.target.value)} className="input-field" placeholder="Leave blank to auto-generate" />
+                  </div>
+                  <p className="sm:col-span-2 text-xs text-theme-muted -mt-1">
+                    Email above will become their login. A one-time password is shown right after you save — make sure you're ready to note it down.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="btn-outline px-4 py-2 text-sm">Cancel</button>
@@ -167,6 +252,7 @@ function EmployeesTab() {
                 <th className="py-2 pr-3 font-medium">Designation</th>
                 <th className="py-2 pr-3 font-medium">Department</th>
                 <th className="py-2 pr-3 font-medium">Type</th>
+                <th className="py-2 pr-3 font-medium">Login</th>
                 <th className="py-2 pr-3 font-medium">Salary</th>
                 <th className="py-2 pr-3 font-medium">Status</th>
                 <th className="py-2 pr-3 font-medium text-right">Actions</th>
@@ -179,6 +265,12 @@ function EmployeesTab() {
                   <td className="py-2.5 pr-3 text-theme-muted">{emp.designation || "—"}</td>
                   <td className="py-2.5 pr-3 text-theme-muted">{emp.department || "—"}</td>
                   <td className="py-2.5 pr-3 text-theme-muted">{emp.employmentType}</td>
+                  <td className="py-2.5 pr-3">
+                    {emp.userId
+                      ? <span className="badge text-[11px]" title={emp.userId.email}>{emp.userId.role}</span>
+                      : <span className="text-theme-muted text-xs">—</span>
+                    }
+                  </td>
                   <td className="py-2.5 pr-3 font-semibold">{displayPrice(emp.monthlySalary, currency, rates)}</td>
                   <td className="py-2.5 pr-3">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLOR[emp.status]}`}>{emp.status}</span>

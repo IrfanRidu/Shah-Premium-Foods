@@ -9,6 +9,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import connectDb from "@/lib/mongodb";
+import UserModel from "@/server/models/user.model.js";
 import {
   sanitizeInput,
   checkRateLimit,
@@ -256,6 +257,58 @@ function findRoute(method, path, routes) {
   return null;
 }
 
+// ── Demo Admin simulation ───────────────────────────────────────────────
+// A Demo Admin account (role "DEMO_ADMIN" — see role.controller.js) exists
+// so a store owner can hand someone a fully-clickable tour of the whole
+// admin dashboard without any risk to real data. Its RoleModel permissions
+// are a full copy of SUPERADMIN's, so it passes every checkPermission()/
+// superAdminOrDemo middleware check upstream of this file exactly like a
+// real admin would — the ONE thing that's different is what happens next,
+// handled centrally right here in handleRequest() rather than in any
+// individual controller, so it can't be missed route-by-route.
+
+// A plausible (but fake) 24-hex-char Mongo ObjectId-shaped string, so
+// frontend code that reads `data._id` immediately after a simulated
+// "create" (e.g. to navigate to the new item, or splice it into a local
+// list) keeps working, without a real document ever being written.
+function fakeObjectId() {
+  const hex = "0123456789abcdef";
+  let out = "";
+  for (let i = 0; i < 24; i++) out += hex[Math.floor(Math.random() * 16)];
+  return out;
+}
+
+// Standard simulated-success body for a Demo Admin's mutating request.
+// Shape matches this app's normal controller response convention
+// (`{success,error,message,data}`) exactly, so existing page code (toast,
+// redirect-to-new-item, optimistic list update) keeps working unmodified.
+// `isDemoAction: true` is the one addition — axios.js's response
+// interceptor watches for it and fires the dedicated "Demo Mode" popup
+// (components/DemoModeNotice.jsx) on top of whatever the page itself does,
+// without any individual page needing to know Demo Admin exists at all.
+//
+// Known, accepted limitation: since nothing is actually written, this
+// can't fabricate a realistic response for every one of this app's ~150
+// routes individually (e.g. a bulk-action endpoint that normally returns
+// an array, or a newly-"uploaded" image's real hosted URL). Echoing the
+// request body back plus a fake id/timestamps covers the large majority
+// of single-entity create/update flows correctly; the popup's wording is
+// deliberately explicit ("nothing was actually saved") so a demo admin
+// who then refreshes a list and sees it unchanged reads as confirmation,
+// not a bug.
+function buildDemoSimulatedResponse(mockReq) {
+  const echoed = (mockReq.body && typeof mockReq.body === "object" && !Array.isArray(mockReq.body)) ? mockReq.body : {};
+  return {
+    success: true,
+    error: false,
+    isDemoAction: true,
+    message: "Demo Mode: this action was simulated successfully. Nothing was actually saved, changed, or deleted — you're safely exploring a demo account.",
+    data: { _id: fakeObjectId(), ...echoed, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  };
+}
+
+const NON_MUTATING_METHODS_DEMO = new Set(["GET", "HEAD", "OPTIONS"]);
+
 // ── Core handler ──────────────────────────────────────────────────────────
 // Usage in each API route file:
 //
@@ -432,6 +485,36 @@ async function handleRequest(nextRequest, params, routes, sharedContext) {
     });
 
     if (!chainContinues) return mockRes._toNextResponse();
+  }
+
+  // ── Demo Admin interception ─────────────────────────────────────────
+  // GET/HEAD/OPTIONS always pass through untouched — a Demo Admin's whole
+  // point is being able to *view* everything normally (including data
+  // already redacted for it server-side by specific controllers — see
+  // server/utils/demoMask.js), only mutations are ever simulated.
+  if (mockReq.userId && !NON_MUTATING_METHODS_DEMO.has(mockReq.method)) {
+    let role = mockReq.userRole;
+    if (!role) {
+      // Not every route's middleware chain includes checkPermission/
+      // superAdminOrDemo (self-service routes like cart/address/wishlist
+      // only use `auth`), so userRole may not be populated yet at this
+      // point. One cheap, primary-key-indexed lookup guarantees this
+      // still works on every route regardless of which specific
+      // middleware combination it uses, and also backfills
+      // mockReq.userRole for the audit-log entry further up the call
+      // stack in createNextHandler.
+      try {
+        const requester = await UserModel.findById(mockReq.userId).select("role").lean();
+        role = requester?.role || null;
+        mockReq.userRole = role;
+      } catch {
+        role = null; // fail open to "not a demo admin" — never fail open the other direction
+      }
+    }
+    if (role === "DEMO_ADMIN") {
+      mockRes.status(200).json(buildDemoSimulatedResponse(mockReq));
+      return mockRes._toNextResponse();
+    }
   }
 
   // ── Controller ────────────────────────────────────────────────────────

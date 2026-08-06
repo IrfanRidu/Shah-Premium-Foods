@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import bcryptjs from "bcryptjs";
 import UserModel from "../models/user.model.js";
 import RoleModel from "../models/role.model.js";

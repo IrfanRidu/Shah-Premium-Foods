@@ -100,6 +100,35 @@ export { validURLConvert, extractIdFromSlug } from "./slug.js";
 export const isAdmin = (role) => ["ADMIN", "SUPERADMIN"].includes(role);
 export const isSuperAdmin = (role) => role === "SUPERADMIN";
 
+// Demo Admin: a role that can view/click through literally everything a
+// Super Admin can (see role.controller.js's ensureSystemRoles), but every
+// mutating request it makes is intercepted and simulated centrally in
+// src/lib/apiHandler.js before it ever reaches the database. Deliberately
+// NOT folded into isSuperAdmin() above — a few genuinely sensitive spots
+// (Audit Log) stay gated to the literal, strict check so they remain
+// truly hidden/blocked rather than simulated. Use hasFullDashboardAccess()
+// below for the (much more common) case of "show this the same as Super
+// Admin sees it."
+export const isDemoAdmin = (role) => role === "DEMO_ADMIN";
+
+// Same *visible* breadth as Super Admin — use this for UI-visibility
+// gates (sidebar sections, page render-guards, role-picker availability).
+// Do NOT use this for anything that should stay strictly Super-Admin-only
+// (Audit Log) — keep those on isSuperAdmin() directly.
+export const hasFullDashboardAccess = (role) => isSuperAdmin(role) || isDemoAdmin(role);
+
+// The "...and other" Employee sub-types named in the role spec: HR, Call
+// Center Agent, plus the pre-existing Manager/Staff/Analyst operational
+// roles. Each has its own narrow, purpose-scoped dashboard rather than the
+// full admin view.
+export const EMPLOYEE_ROLES = ["HR", "CALL_CENTER_AGENT", "MANAGER", "STAFF", "ANALYST"];
+export const isEmployeeRole = (role) => EMPLOYEE_ROLES.includes(role);
+
+// Any role that lands somewhere inside /dashboard at all (as opposed to a
+// plain USER, whose dropdown/sidebar only ever shows their own personal
+// account section).
+export const hasDashboardAccess = (role) => isAdmin(role) || isDemoAdmin(role) || isEmployeeRole(role);
+
 // ── Error toast ──────────────────────────────────────────────────
 export const axiosToastError = (error) => {
   const msg =

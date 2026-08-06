@@ -7,6 +7,7 @@ import { getCampaignIcon } from "@/lib/campaignIcons";
 import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
 import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
+import WishlistButton from "./WishlistButton";
 
 // Fix 29: Show short description (truncated)
 // Fix 32: Uniform card heights via flex layout
@@ -60,6 +61,11 @@ function ProductCard({ product }) {
           sizes="(max-width: 480px) 50vw, (max-width: 768px) 33vw, (max-width: 1200px) 25vw, 20vw"
           className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
+
+        {/* Wishlist toggle — top-right, mirrors the badges' top-left placement */}
+        <div className="absolute top-2 right-2 z-10">
+          <WishlistButton productId={product._id} variant="floating" size={13} />
+        </div>
 
         {/* Campaign badge */}
         {isCampaign && (

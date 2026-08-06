@@ -8,6 +8,7 @@ import {
   getLowSellingProductsController,
   getNeverSoldProductsController,
   getAllTimeBestSellingController,
+  getOverviewStatsController,
 } from "@/server/controllers/analytics.controller";
 import {
   getAnalyticsSettingsController,
@@ -26,6 +27,7 @@ import { getExpenseAnalysisController } from "@/server/controllers/analyticsExpe
 // this route file only ever exposed the original single dashboard.
 const ROUTES = {
   "GET:/dashboard":    [[auth, checkPermission("analytics", "view")], getDashboardMetricsController],
+  "GET:/overview":     [[auth], getOverviewStatsController],
   "GET:/trending":     [[], getTrendingProductsController],
   "GET:/best-selling": [[], getBestSellingProductsController],
   "GET:/low-selling":  [[], getLowSellingProductsController],

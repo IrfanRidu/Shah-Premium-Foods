@@ -35,6 +35,27 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Demo Admin (see src/lib/apiHandler.js for the server-side half of this):
+// every mutating request from a Demo Admin comes back as a normal 2xx
+// success with one extra field, `isDemoAction: true`, tacked onto the
+// usual `{success,error,message,data}` body. The page that made the call
+// keeps doing exactly what it always does with a normal success (toast,
+// redirect, optimistic update) — this interceptor's only job is to also
+// broadcast a DOM CustomEvent so ONE listener component
+// (components/DemoModeNotice.jsx, mounted once near the root layout) can
+// show the dedicated "Demo Mode" popup, without every individual page
+// needing to know Demo Admin exists at all.
+if (typeof window !== "undefined") {
+  axiosInstance.interceptors.response.use((res) => {
+    if (res?.data?.isDemoAction) {
+      window.dispatchEvent(new CustomEvent("demo-admin-action", {
+        detail: { message: res.data.message, url: res.config?.url },
+      }));
+    }
+    return res;
+  });
+}
+
 axiosInstance.interceptors.response.use(
   (res) => res,
   async (err) => {

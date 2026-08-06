@@ -2,7 +2,7 @@ import NotificationModel from "../models/notification.model.js";
 import RoleModel from "../models/role.model.js";
 import UserModel from "../models/user.model.js";
 
-const SUPER_ADMIN_ROLES = ["SUPERADMIN", "ADMIN"];
+const SUPER_ADMIN_ROLES = ["SUPERADMIN", "ADMIN", "DEMO_ADMIN"];
 
 // Called from other controllers (order placement, ticket creation) — not
 // exposed as its own route. Fire-and-forget: never let a notification

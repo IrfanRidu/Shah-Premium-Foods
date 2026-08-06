@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { FaPhone, FaDownload, FaSearch, FaFilter } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
-import { axiosToastError, displayPrice, displayPriceSimple, isSuperAdmin } from "@/lib/utils";
+import { axiosToastError, displayPrice, displayPriceSimple, hasFullDashboardAccess } from "@/lib/utils";
 import { useSelector } from "react-redux";
 import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
@@ -28,7 +28,7 @@ const exportCSV = (customers) => {
   URL.revokeObjectURL(url);
 };
 
-const ROLES = ["USER","ADMIN","MANAGER","STAFF","ANALYST","SUPERADMIN"];
+const ROLES = ["USER","ADMIN","MANAGER","STAFF","ANALYST","HR","CALL_CENTER_AGENT","DEMO_ADMIN","SUPERADMIN"];
 
 export default function AdminUsersPage() {
   const myRole   = useSelector((s) => s.user.role);
@@ -68,7 +68,7 @@ export default function AdminUsersPage() {
   };
 
   const changeRole = async (userId, role) => {
-    if (!isSuperAdmin(myRole)) { toast.error("Only Super Admins can change roles"); return; }
+    if (!hasFullDashboardAccess(myRole)) { toast.error("Only Super Admins can change roles"); return; }
     try {
       const r = await Axios({ ...api.assignUserRole, data: { userId, roleName: role } });
       if (r.data?.success) {
@@ -134,7 +134,7 @@ export default function AdminUsersPage() {
                     <td className="font-semibold text-sm text-theme-primary">{displayPrice(u.totalSpent, currency, rates)}</td>
                     <td className="text-xs text-theme-muted">{u.lastOrderDate ? new Date(u.lastOrderDate).toLocaleDateString() : "—"}</td>
                     <td>
-                      {isSuperAdmin(myRole)
+                      {hasFullDashboardAccess(myRole)
                         ? <select value={u.role} onChange={e => changeRole(u._id, e.target.value)} className="input-field py-1 text-xs w-28">
                             {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>

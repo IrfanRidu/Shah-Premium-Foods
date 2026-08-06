@@ -65,19 +65,12 @@ export default function AllProductsPage() {
         <span className="text-theme">{t("nav.allProducts")}</span>
       </div>
 
-      {/* Section 11 (Category Pages) — "sticky filter button": this site
-          has no price/category filter feature anywhere (only sort) — see
-          STATUS.md Batch 22 for why a full filter system wasn't built
-          from scratch here. Made the existing sort control sticky
-          instead, so it's reachable without scrolling back up through a
-          long product grid. top-[150px] is a deliberately generous
-          estimate of the site header's tallest possible state (
-          announcement bar + the dedicated mobile search row that only
-          exists below md:) rather than a measured value — this sandbox
-          can't render the real header to measure it precisely, so this
-          is a specific, disclosed item worth confirming on a real device
-          rather than a silent guess. */}
-      <div className="sticky top-[150px] md:top-24 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2.5 mb-4 sm:mb-6 bg-[var(--color-header-bg)]/95 backdrop-blur-sm border-b border-theme flex items-center justify-between gap-3">
+      {/* Bug report Aug 6: the sticky treatment here (previously pinned
+          with an estimated top offset — see STATUS.md Batch 22/23) didn't
+          line up with the real header height on some viewports, so product
+          cards visually bled through behind the title/sort bar. Neither
+          element needs to stay pinned, so this is back to normal flow. */}
+      <div className="flex items-center justify-between gap-3 py-2.5 mb-4 sm:mb-6 border-b border-theme">
         <h1 className="section-heading text-xl sm:text-2xl md:text-3xl truncate">{t("nav.allProducts")}</h1>
         <SortDropdown value={sortBy} onChange={setSortBy} />
       </div>

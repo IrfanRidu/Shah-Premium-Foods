@@ -1,6 +1,171 @@
 # Shah Premium Foods — Build Status Tracker
 
-## Batch 22 — Hero banner revert + items 11/12/14 (Category pages, Animations, Accessibility)
+## Batch 23 — Demo Admin role, dropdown/sidebar overhaul, Wishlist, Employee sub-types, profile consolidation
+
+Full session working from a detailed 3-part spec (roles incl. a simulated
+Demo Admin; dropdown+sidebar restructuring into 6 categories with a new
+overview homepage; Wishlist + profile consolidation). Investigation and
+planning tracked live in `PROGRESS_TRACKER.md` at the repo root — kept
+open and updated after every step specifically so this could survive
+being picked up across multiple separate sessions; leaving it in place
+rather than deleting it, since its "finalized design decisions" section
+is a useful map of *why* things ended up shaped the way they did, beyond
+what fits comfortably in this changelog entry.
+
+**Demo Admin — the core mechanic.** New `DEMO_ADMIN` role whose RoleModel
+permissions are a full copy of SUPERADMIN's (so it passes every
+permission check exactly like a real admin would — the goal is that it
+can attempt literally anything). The actual "don't really do it" logic
+lives in exactly one place: `src/lib/apiHandler.js`, the single function
+every API route in this app already funnels through. Right before the
+real controller would run, if the resolved caller role is DEMO_ADMIN and
+the HTTP method isn't GET/HEAD/OPTIONS, the request is short-circuited
+into a simulated `{success:true, isDemoAction:true, message, data:
+{...echoedBody, fakeId, timestamps}}` response — the real controller,
+and therefore the database, is never touched. Role resolution doesn't
+trust whichever permission middleware happened to run (many routes,
+e.g. cart/address/wishlist, only use bare `auth`) — it does its own
+one-off indexed lookup keyed off `userId` when needed, so the guarantee
+holds on every route uniformly, not just the ones with a
+`checkPermission` call in their chain. `axios.js` has a matching response
+interceptor that notices `isDemoAction` on any response and fires a DOM
+event; `components/DemoModeNotice.jsx` (mounted once in Providers.jsx)
+is the only thing that listens for it and shows the popup the spec asked
+for, built on the Toaster this app already had rather than a new overlay
+system. This means zero of the hundreds of individual "create/edit/
+delete" call sites across the app needed to change at all.
+
+Sensitive-data handling: Audit Log stays on the pre-existing, stricter
+`superAdminOnly` middleware (a new `superAdminOrDemo` variant was added
+for the rest of Roles & Staff, which Demo Admin can browse/attempt) —
+deliberately genuinely inaccessible rather than shown-and-simulated,
+since a real trail of other people's activity isn't "functionality" a
+demo tour should surface. New `server/utils/demoMask.js` redacts
+salary/bank-account/customer-email/customer-phone fields server-side
+(never sent over the wire, not just hidden in the UI) across HR &
+Payroll, the Customers list/detail/CSV-export, and Customer Care
+tickets — the CSV export mattered most here, since it's a GET/download
+untouched by the write-blocking layer and would otherwise have been a
+complete, real PII leak into a downloaded file. Deliberately deferred:
+Site Settings' IP whitelist (that endpoint is genuinely public/
+unauthenticated by design, sitewide-cached; no cheap way to know the
+caller's role there without new infrastructure, judged lower severity
+than the above) and second-level nested `populate()`d fields (e.g. a
+ticket's populated `userId.email` vs. its own top-level `customerEmail`).
+
+Found and fixed a real, pre-existing, unrelated-until-now bug while
+building this: `role.controller.js`'s `FULL_PERMS()` helper — used for
+both SUPERADMIN and ADMIN's default permission sets — never included the
+`customerCare`/`hrPayroll` modules (added to the Role schema in a later
+batch than this helper, apparently never backfilled here). Mongoose's
+schema default silently filled both in as `false`, meaning ADMIN could
+see the Customer Care and HR & Payroll links in the old flat sidebar but
+would've been denied inside them the whole time. Fixed, plus a migration
+`updateOne` so it's corrected even on an already-seeded database, not
+just fresh installs.
+
+**Dropdown + sidebar + overview homepage.** `UserMenu.jsx`'s ~15-link
+`ADMIN_MENU` dump replaced with exactly one role-appropriate entry
+("Go to Super Admin Dashboard" / "Go to Admin Dashboard" / "Go to
+Dashboard"); base menu is now My Profile / My Orders / Submit Shopping
+List / Wishlist. `dashboard/layout.jsx`'s flat 17-link `ADMIN_LINKS`
+regrouped into exactly the six named categories (Products, Analytics,
+Customer care and call center, Website Maintenance, HR and Payroll,
+Security and permissions), each a collapsible section open by default.
+Every role sees only the categories/links its own permissions actually
+cover — same `canSee()` mechanism as before, just reorganized, plus a new
+`hasFullDashboardAccess()` helper (Super Admin OR Demo Admin) used for
+the "sees everything" gate everywhere except the one deliberately-strict
+Audit Log check. New `dashboard/page.jsx` (this route 404'd before — it
+didn't exist) is the requested overview homepage: one card per visible
+category with a couple of cheap live counts each, backed by a new
+`getOverviewStatsController` that resolves the SAME per-role visibility
+rules server-side so nobody ever sees a card for a section they can't
+actually open. This page also functions as the mobile navigation hub,
+since the categorized sidebar remains desktop-only (`hidden md:flex`,
+unchanged) and the dropdown is now down to one link — an accepted,
+explicit trade-off of the "one link" requirement, not a regression (a
+full mobile drawer nav was out of scope).
+
+**Wishlist**, built from nothing (confirmed via grep — no model, no API,
+no UI existed anywhere): `wishlist.model.js` (userId+productId, unique
+compound index), `wishlist.controller.js` (get/add/remove/toggle),
+`store/wishlistSlice.js`, wired into `GlobalProvider.jsx`'s boot fetch
+alongside cart/address/orders. New shared `components/WishlistButton.jsx`
+(floating variant on ProductCard, inline variant on the PDP purchase
+panel) intentionally tracks its own optimistic state from what it just
+clicked rather than trusting the API response's `wishlisted` field to
+always be present — a Demo Admin's toggle is intercepted centrally and
+comes back as a generic echoed response with no such field, so relying
+on the response shape would've silently broken the heart icon
+specifically in demo mode. New `dashboard/wishlist/page.jsx` reuses
+ProductCard directly for its grid, so the already-filled heart button
+doubles as the removal control for free.
+
+**Employee sub-types** ("HR, Call center agent, and others which Super
+Admin, HR, Admin can add"): Call Center Agent already had its own
+dedicated provisioning flow (`callCenterAgent.controller.js`) — left
+untouched except for one bug fix (see below). Added the equivalent for
+the rest: new `HR` system role, and `hrPayroll.controller.js` gained
+`createEmployeeWithLoginController`, whitelisted to exactly
+`{HR, MANAGER, STAFF, ANALYST}` (never ADMIN/SUPERADMIN/DEMO_ADMIN — this
+endpoint can only ever attach an *existing* permission-scoped role, never
+grant elevated access or invent a new one). Surfaced in the HR & Payroll
+page's existing Add Employee modal as a "also create a dashboard login"
+checkbox; shows a one-time credentials panel afterward (the temp
+password genuinely can't be retrieved again) — explicitly skipped when
+the response is a Demo Admin simulation, which has no real password to
+show.
+
+While reading `callCenterAgent.controller.js` closely enough to mirror
+its pattern safely, found it calls `crypto.randomBytes()` for temp-
+password generation with `crypto` never imported anywhere in the file —
+Node's bare global `crypto` is the Web Crypto API, which has no
+`.randomBytes` (that's the separate `node:crypto` module, imported
+correctly elsewhere in this same codebase). Would have thrown the moment
+anyone created a call center agent with a login and no custom password
+typed in. Fixed.
+
+**Profile consolidation**: extracted the old standalone address page's
+body verbatim into `components/AddressBook.jsx` (new optional
+`showHeading` prop); the old `/dashboard/address` route still works
+(kept for bookmarks) as a 9-line wrapper around the shared component.
+`dashboard/profile/page.jsx` rewritten as three tabs — Profile Info
+(unchanged), Addresses (the shared component), Security (the existing
+2FA + Sessions sections, unchanged, just grouped under a tab instead of
+stacked on the page).
+
+**One more gap found during a final security re-read of the interception
+logic**: `POST /api/customer-care/create` (submit a support ticket)
+intentionally has no auth middleware at all, so a Demo Admin's identity
+never reached apiHandler.js on that specific route — a ticket submitted
+through it would have actually been written for real. Fixed with a new
+`optionalAuth` middleware (identifies the caller when a token's present,
+never rejects when one isn't) applied to just that route — anonymous
+ticket submission still works exactly as before for everyone else; a
+logged-in Demo Admin is now correctly intercepted like on every other
+route. Small bonus: this also means a logged-in (non-demo) customer's
+ticket now gets correctly attributed to their account instead of always
+being anonymous, which it never did before.
+
+Two more pre-existing documentation-staleness bugs fixed while updating
+credentials docs for the new seeded roles: README's roles list still said
+"MODERATOR, EMPLOYEE" (renamed to MANAGER/STAFF in an earlier batch, this
+line never updated); SETUP.md's seed instructions listed
+`admin@shahpremiumfoods.com`/`Admin@123` as the created superadmin
+account — that email doesn't match anything in the actual `demoUsers`
+array (the real one is `superadmin@shahpremiumfoods.com`/`Super@123`).
+
+Verification: no npm/build tooling available in this sandbox (no network
+access, no project node_modules) — used the globally-available
+TypeScript compiler as a syntax-error checker instead (`allowJs`,
+`checkJs:false`, `jsx:"preserve"`, `noEmit`), verified against both clean
+and deliberately-broken files first. Every touched/created file (39
+total) syntax-checked individually as it was written, then all together
+in one final combined pass — clean. Every new cross-file import checked
+against its actual export line by hand, not just assumed.
+
+
 
 **Hero banner revert (user-reported regression from Batch 21)**: user said
 the aspect-[4/3] redesign wasn't as good as the original aspect-[3/1].

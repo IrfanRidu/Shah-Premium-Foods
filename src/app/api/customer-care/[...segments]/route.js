@@ -1,5 +1,5 @@
 import { createNextHandler } from "@/lib/apiHandler";
-import auth from "@/server/middlewares/auth";
+import auth, { optionalAuth } from "@/server/middlewares/auth";
 import { checkPermission } from "@/server/middlewares/permission";
 import {
   listTicketsController,
@@ -26,7 +26,7 @@ import {
 
 const ROUTES = {
   "GET:/list":     [[auth, checkPermission("customerCare", "view")], listTicketsController],
-  "POST:/create":  [[], createTicketController], // customers can open tickets without staff perms
+  "POST:/create":  [[optionalAuth], createTicketController], // customers can open tickets without staff perms; optionalAuth so a logged-in Demo Admin is still recognized and intercepted (see apiHandler.js) rather than silently writing a real ticket
   "PUT:/update":   [[auth, checkPermission("customerCare", "edit")], updateTicketController],
   "DELETE:/delete":[[auth, checkPermission("customerCare", "edit")], deleteTicketController],
   // Fix #2: order visibility + status updates, scoped to the customerCare

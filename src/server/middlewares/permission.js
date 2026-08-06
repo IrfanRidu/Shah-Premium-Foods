@@ -5,7 +5,7 @@ import dataCache from "../../lib/cache.js";
 import { getClientIpFromPlainHeaders } from "../../lib/security.js";
 import { logSecurityEvent } from "../../lib/apiObservability.js";
 
-const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN", "DEMO_ADMIN"]);
 
 // Section 13 (Admin Panel Security) — IP whitelist, admin-configurable via
 // Site Settings → Security (dashboard/site-settings/page.jsx). Enforced
@@ -113,7 +113,9 @@ export const checkPermission = (module, action = "view") => {
   };
 };
 
-// Strict: only the SUPERADMIN account can pass
+// Strict: only the SUPERADMIN account can pass. Used for the handful of
+// routes that must stay genuinely inaccessible to Demo Admin (audit-log),
+// not just simulated — see superAdminOrDemo below for the more common case.
 export const superAdminOnly = async (req, res, next) => {
   try {
     const user = await UserModel.findById(req.userId);
@@ -121,6 +123,26 @@ export const superAdminOnly = async (req, res, next) => {
       return res.status(403).json({ message: "Permission denied. Super Admin access only.", error: true, success: false });
     }
     if (!(await enforceIpWhitelist(req, res, user))) return; // response already sent
+    next();
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });
+  }
+};
+
+// SUPERADMIN or DEMO_ADMIN. Used on the role-management mutation routes
+// (create/update/delete/assign role) so a Demo Admin can click through the
+// full Roles & Staff workflow like any other part of the dashboard — the
+// request reaches here, passes, and is then caught and simulated by the
+// Demo Admin interception block in src/lib/apiHandler.js before it ever
+// touches the database. Real SUPERADMIN requests behave exactly as before.
+export const superAdminOrDemo = async (req, res, next) => {
+  try {
+    const user = await UserModel.findById(req.userId);
+    if (!user || (user.role !== "SUPERADMIN" && user.role !== "DEMO_ADMIN")) {
+      return res.status(403).json({ message: "Permission denied. Super Admin access only.", error: true, success: false });
+    }
+    if (!(await enforceIpWhitelist(req, res, user))) return; // response already sent
+    req.userRole = user.role;
     next();
   } catch (error) {
     return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });

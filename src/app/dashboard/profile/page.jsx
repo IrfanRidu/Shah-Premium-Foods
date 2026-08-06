@@ -1,16 +1,68 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useForm } from "react-hook-form";
-import { FaCamera, FaCheckCircle, FaDesktop, FaMobileAlt, FaSignOutAlt } from "react-icons/fa";
+import { useSearchParams } from "next/navigation";
+import { FaCamera, FaCheckCircle, FaDesktop, FaMobileAlt, FaSignOutAlt, FaUser, FaMapMarkerAlt, FaShieldAlt } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { setUserDetails, updatedAvatar } from "@/store/userSlice";
 import { axiosToastError } from "@/lib/utils";
 import SafeImage from "@/components/SafeImage";
+import AddressBook from "@/components/AddressBook";
 import toast from "react-hot-toast";
 
+const TABS = [
+  { id: "info",      label: "Profile Info", icon: FaUser },
+  { id: "addresses", label: "Addresses",    icon: FaMapMarkerAlt },
+  { id: "security",  label: "Security",     icon: FaShieldAlt },
+];
+
+// "Everything else will be under my profile" — Addresses (previously its
+// own top-level dropdown link) and account security (2FA + sessions,
+// previously just stacked below the form on this same page) are now tabs
+// here instead, so the dropdown itself can stay down to the 4 items the
+// spec asked for. useSearchParams wrapped in Suspense per Next.js's own
+// requirement for any component that reads it in the App Router.
+function ProfileTabs() {
+  const searchParams = useSearchParams();
+  const initialTab = TABS.some((t) => t.id === searchParams.get("tab")) ? searchParams.get("tab") : "info";
+  const [tab, setTab] = useState(initialTab);
+
+  return (
+    <div>
+      <h1 className="section-heading text-2xl mb-6">My Profile</h1>
+
+      <div className="flex gap-2 mb-6 border-b border-theme overflow-x-auto">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${tab === id ? "border-theme-primary text-theme-primary" : "border-transparent text-theme-muted hover:text-theme"}`}>
+            <Icon size={13} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "info" && <ProfileInfoTab />}
+      {tab === "addresses" && <AddressBook showHeading={false} />}
+      {tab === "security" && (
+        <div className="max-w-xl">
+          <TwoFactorSection />
+          <SessionsSection />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-theme-muted">Loading…</div>}>
+      <ProfileTabs />
+    </Suspense>
+  );
+}
+
+function ProfileInfoTab() {
   const user     = useSelector((s) => s.user);
   const dispatch = useDispatch();
   const [uploading,  setUploading]  = useState(false);
@@ -90,79 +142,69 @@ export default function ProfilePage() {
   const avatarSrc = preview || user.avatar;
 
   return (
-    <div>
-      <h1 className="section-heading text-2xl mb-6">My Profile</h1>
-      <div className="bg-[var(--color-surface)] border border-theme rounded-2xl p-6 max-w-xl">
+    <div className="bg-[var(--color-surface)] border border-theme rounded-2xl p-6 max-w-xl">
 
-        {/* Avatar — clicking the div itself opens the picker; no disabled ever on the input */}
-        <div className="flex justify-center mb-7">
-          <div
-            className="relative cursor-pointer group"
-            onClick={() => !uploading && fileInputRef.current?.click()}
-            title="Click to change profile picture"
-          >
-            <div className="relative h-24 w-24 rounded-full overflow-hidden border-2 border-theme ring-2 ring-[var(--color-primary)]/20">
-              {avatarSrc
-                ? <SafeImage src={avatarSrc} alt={user.name} fill sizes="96px" className="object-cover" />
-                : <div className="w-full h-full bg-[var(--color-border)] flex items-center justify-center text-3xl font-bold text-theme-muted">
-                    {user.name?.[0]?.toUpperCase() || "?"}
-                  </div>
-              }
-            </div>
-            {/* Overlay */}
-            <div className={`absolute inset-0 rounded-full flex items-center justify-center transition-opacity
-              ${uploading ? "bg-black/50 opacity-100" : "bg-black/40 opacity-0 group-hover:opacity-100"}`}>
-              {uploading
-                ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <FaCamera className="text-white text-xl" />
-              }
-            </div>
-            {/* Success checkmark briefly when upload done */}
-            {!uploading && user.avatar && !preview && (
-              <span className="absolute bottom-0 right-0 h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-white">
-                <FaCheckCircle className="text-white" size={10} />
-              </span>
-            )}
+      {/* Avatar — clicking the div itself opens the picker; no disabled ever on the input */}
+      <div className="flex justify-center mb-7">
+        <div
+          className="relative cursor-pointer group"
+          onClick={() => !uploading && fileInputRef.current?.click()}
+          title="Click to change profile picture"
+        >
+          <div className="relative h-24 w-24 rounded-full overflow-hidden border-2 border-theme ring-2 ring-[var(--color-primary)]/20">
+            {avatarSrc
+              ? <SafeImage src={avatarSrc} alt={user.name} fill sizes="96px" className="object-cover" />
+              : <div className="w-full h-full bg-[var(--color-border)] flex items-center justify-center text-3xl font-bold text-theme-muted">
+                  {user.name?.[0]?.toUpperCase() || "?"}
+                </div>
+            }
           </div>
-          {/* Hidden file input — never disabled, never inside a <label> */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={onAvatarChange}
-            className="hidden"
-          />
+          {/* Overlay */}
+          <div className={`absolute inset-0 rounded-full flex items-center justify-center transition-opacity
+            ${uploading ? "bg-black/50 opacity-100" : "bg-black/40 opacity-0 group-hover:opacity-100"}`}>
+            {uploading
+              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <FaCamera className="text-white text-xl" />
+            }
+          </div>
+          {/* Success checkmark briefly when upload done */}
+          {!uploading && user.avatar && !preview && (
+            <span className="absolute bottom-0 right-0 h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-white">
+              <FaCheckCircle className="text-white" size={10} />
+            </span>
+          )}
         </div>
-
-        <p className="text-center text-xs text-theme-muted -mt-4 mb-6">
-          {uploading ? "Uploading…" : "Click avatar to change"}
-        </p>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Full Name</label>
-            <input {...register("name", { required: "Name is required" })} className="input-field" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Email</label>
-            <input value={user.email} readOnly className="input-field opacity-60 cursor-not-allowed" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Mobile / Phone</label>
-            <input {...register("mobile")} type="tel" className="input-field" placeholder="+880…" />
-          </div>
-          <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-2.5">
-            {isSubmitting ? "Saving…" : "Save Changes"}
-          </button>
-        </form>
+        {/* Hidden file input — never disabled, never inside a <label> */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={onAvatarChange}
+          className="hidden"
+        />
       </div>
 
-      {/* Security audit: multi-device sessions are now real (see
-          user.model.js / sessionManager.js) — this surfaces that so it's
-          an actual usable feature, not just backend plumbing the user
-          would have no way to see or act on. */}
-      <TwoFactorSection />
-      <SessionsSection />
+      <p className="text-center text-xs text-theme-muted -mt-4 mb-6">
+        {uploading ? "Uploading…" : "Click avatar to change"}
+      </p>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Full Name</label>
+          <input {...register("name", { required: "Name is required" })} className="input-field" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Email</label>
+          <input value={user.email} readOnly className="input-field opacity-60 cursor-not-allowed" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Mobile / Phone</label>
+          <input {...register("mobile")} type="tel" className="input-field" placeholder="+880…" />
+        </div>
+        <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-2.5">
+          {isSubmitting ? "Saving…" : "Save Changes"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -186,7 +228,7 @@ function TwoFactorSection() {
   };
 
   return (
-    <div className="bg-[var(--color-surface)] border border-theme rounded-2xl shadow-sm p-6 mt-6">
+    <div className="bg-[var(--color-surface)] border border-theme rounded-2xl shadow-sm p-6">
       <h2 className="font-serif text-lg font-semibold mb-1">Two-Factor Authentication</h2>
       <p className="text-sm text-theme-muted mb-4">
         When enabled, we'll email you a 6-digit code to enter every time you sign in — an

@@ -59,3 +59,4 @@ import "./siteSettings.model.js";
 import "./subcategory.model.js";
 import "./supportTicket.model.js";
 import "./user.model.js";
+import "./wishlist.model.js";

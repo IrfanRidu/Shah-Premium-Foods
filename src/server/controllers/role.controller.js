@@ -13,6 +13,17 @@ const FULL_PERMS = (excludeRoles = false) => ({
   analytics:  { view: true },
   settings:   { view: true, edit: true },
   roles:      excludeRoles ? { view: false, create: false, edit: false, delete: false } : { view: true, create: true, edit: true, delete: true },
+  // customerCare/hrPayroll were added to the Role schema after this helper
+  // was first written, and were never backfilled here — meaning ADMIN's
+  // "full" permission set silently excluded the Customer Care and HR &
+  // Payroll modules (schema default false, and the dashboard sidebar's
+  // legacy-ADMIN fallback only triggers when a module key is *entirely
+  // absent*, not when it's present-but-false). Fixed: both are genuine
+  // store-management modules, not role/permission management, so they
+  // belong in "full" access the same as products/orders/etc regardless of
+  // excludeRoles.
+  customerCare: { view: true, edit: true },
+  hrPayroll:    { view: true, edit: true },
 });
 
 const EMPTY_PERMS = () => ({
@@ -21,19 +32,60 @@ const EMPTY_PERMS = () => ({
   customers: { view:false,export:false,call:false }, inventory:{view:false,edit:false},
   coupons:   { view:false,create:false,edit:false,delete:false }, campaigns:{view:false,create:false,edit:false,delete:false},
   analytics: { view:false }, settings:{view:false,edit:false}, roles:{view:false,create:false,edit:false,delete:false},
+  customerCare: { view:false, edit:false }, hrPayroll: { view:false, edit:false },
 });
 
-// Ensure SUPERADMIN/ADMIN/MANAGER/STAFF/ANALYST/USER system roles exist.
-// Security audit: MANAGER/STAFF are the exact role names requested
-// (previously named MODERATOR/EMPLOYEE — same permission scoping, just
-// relabeled + renamed to match "Admin / Manager / Staff / Customer"
-// literally rather than functionally-equivalent-but-differently-named
-// roles). ANALYST is kept as a bonus read-only reporting role beyond the
-// requested four — harmless extra, not a replacement for any of them.
+// Ensure system roles exist: SUPERADMIN, ADMIN, DEMO_ADMIN, HR,
+// CALL_CENTER_AGENT (auto-provisioned separately, see
+// callCenterAgent.controller.js), MANAGER, STAFF, ANALYST, USER.
+//
+// Role map, matching the roles requested by the store owner:
+//  - SUPERADMIN  → full unrestricted access, including role management.
+//  - DEMO_ADMIN  → same *visible* breadth as SUPERADMIN (so a demo tester
+//    can browse every corner of the dashboard), but every mutating
+//    request is intercepted and simulated at the apiHandler layer
+//    (src/lib/apiHandler.js) before it ever reaches a controller/DB
+//    write — see the DEMO ADMIN SIMULATION block there. Audit Log stays
+//    hidden regardless (it's gated by the literal-SUPERADMIN-only
+//    `superAdminOnly` middleware/flag, deliberately not granted to
+//    DEMO_ADMIN) since that's a real trail of other people's activity,
+//    not "functionality" to demo.
+//  - ADMIN       → full store management, excluding role/permission mgmt.
+//  - HR          → manages the HR & Payroll module (employee records,
+//    payroll, and provisioning new Employee-type logins).
+//  - MANAGER/STAFF/ANALYST/CALL_CENTER_AGENT → the "...and other" Employee
+//    sub-types: narrower, purpose-scoped operational roles. (MANAGER/STAFF
+//    were previously named MODERATOR/EMPLOYEE — same permission scoping,
+//    renamed in place; migration below keeps existing accounts working.)
+//  - USER        → regular storefront customer.
+// Safely rename a legacy system role doc to its new name. If a doc with
+// the new name already exists (the common case now that the new name is
+// also in the `defaults` upsert list below), renaming would collide with
+// the unique `name` index — so instead we just move any users still
+// pointing at the old name over to the new one and remove the now-
+// redundant legacy doc. If the new name doesn't exist yet, do the plain
+// rename as before. Either branch is safe to run on every request.
+const migrateLegacyRoleName = async (oldName, newName, newLabel) => {
+  const oldDoc = await RoleModel.findOne({ name: oldName });
+  if (!oldDoc) return; // nothing to migrate, already clean
+
+  const newDoc = await RoleModel.findOne({ name: newName });
+  if (newDoc) {
+    await UserModel.updateMany({ role: oldName }, { $set: { role: newName } });
+    await RoleModel.deleteOne({ _id: oldDoc._id });
+    return;
+  }
+
+  await RoleModel.updateOne({ name: oldName }, { $set: { name: newName, label: newLabel } });
+  await UserModel.updateMany({ role: oldName }, { $set: { role: newName } });
+};
+
 export const ensureSystemRoles = async () => {
   const defaults = [
     { name: "SUPERADMIN", label: "Super Admin", description: "Full unrestricted access to everything, including role management.", isSystemRole: true, permissions: FULL_PERMS(false) },
+    { name: "DEMO_ADMIN", label: "Demo Admin",  description: "Can view and click through every part of the dashboard exactly like a Super Admin. Every action is simulated — nothing is ever actually saved, changed, or deleted. Meant for giving someone a safe, full guided tour of the admin experience.", isSystemRole: true, permissions: FULL_PERMS(false) },
     { name: "ADMIN",      label: "Admin",       description: "Full store management access, excluding role/user-permission management.", isSystemRole: true, permissions: FULL_PERMS(true) },
+    { name: "HR",         label: "HR",          description: "Manages employee records, payroll, and can add new Employee-type staff accounts.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, hrPayroll:{view:true,edit:true} } },
     { name: "MANAGER",    label: "Manager",     description: "Can manage products, categories, orders and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, products:{view:true,create:true,edit:true,delete:false}, categories:{view:true,create:true,edit:true,delete:false}, orders:{view:true,edit:true,cancel:true}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:true} } },
     { name: "STAFF",      label: "Staff",       description: "Can view and process orders, view inventory and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, orders:{view:true,edit:true,cancel:false}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
     { name: "ANALYST",    label: "Analyst",     description: "Read-only access to analytics, orders and inventory for reporting.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, analytics:{view:true}, orders:{view:true,edit:false,cancel:false}, customers:{view:true,export:true,call:false}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
@@ -46,10 +98,27 @@ export const ensureSystemRoles = async () => {
   // MODERATOR/EMPLOYEE — relabel them in place (rather than leaving
   // orphaned duplicate roles) so any user already assigned one keeps
   // working under the new name with the exact same permissions.
-  await RoleModel.updateOne({ name: "MODERATOR" }, { $set: { name: "MANAGER", label: "Manager" } });
-  await RoleModel.updateOne({ name: "EMPLOYEE" },  { $set: { name: "STAFF",   label: "Staff" } });
-  await UserModel.updateMany({ role: "MODERATOR" }, { $set: { role: "MANAGER" } });
-  await UserModel.updateMany({ role: "EMPLOYEE" },  { $set: { role: "STAFF" } });
+  //
+  // BUGFIX: this used to run RoleModel.updateOne({name:oldName},
+  // {$set:{name:newName}}) unconditionally. Since MANAGER/STAFF are ALSO
+  // in the `defaults` upsert loop above, that loop already creates the
+  // new-named doc on every install going forward — so by the time this
+  // line ran, a legacy MODERATOR/EMPLOYEE doc left over from before the
+  // rename would collide with the MANAGER/STAFF doc that already exists,
+  // throwing E11000 on the unique `name` index and 500'ing GET /api/roles/all
+  // (and every ensureSystemRoles() caller) FOREVER, since nothing ever
+  // cleared the stale doc. Now: only attempt the rename if the new name
+  // doesn't exist yet; if it already does, just re-home any straggler
+  // users and delete the now-redundant legacy doc instead of colliding.
+  await migrateLegacyRoleName("MODERATOR", "MANAGER", "Manager");
+  await migrateLegacyRoleName("EMPLOYEE", "STAFF", "Staff");
+  // Backfill for installs where a SUPERADMIN/ADMIN role doc already
+  // existed *before* customerCare/hrPayroll were added above ($setOnInsert
+  // only fills fields on brand-new documents, so an existing doc would
+  // otherwise keep silently defaulting those two modules to false forever).
+  await RoleModel.updateOne({ name: "SUPERADMIN" }, { $set: { "permissions.customerCare": { view: true, edit: true }, "permissions.hrPayroll": { view: true, edit: true } } });
+  await RoleModel.updateOne({ name: "ADMIN" },      { $set: { "permissions.customerCare": { view: true, edit: true }, "permissions.hrPayroll": { view: true, edit: true } } });
+  await RoleModel.updateOne({ name: "DEMO_ADMIN" }, { $set: { "permissions.customerCare": { view: true, edit: true }, "permissions.hrPayroll": { view: true, edit: true } } });
 };
 
 // GET all roles
@@ -127,6 +196,7 @@ export const deleteRoleController = async (req, res) => {
 export const assignUserRoleController = async (req, res) => {
   try {
     const { userId, roleName } = req.body;
+    await ensureSystemRoles(); // self-healing: works even if nobody has opened Roles & Staff / run the seed script yet
     const role = await RoleModel.findOne({ name: roleName.toUpperCase() });
     if (!role) return res.status(404).json({ success: false, error: true, message: "Role not found" });
 
@@ -154,6 +224,7 @@ export const getMyPermissionsController = async (req, res) => {
     if (user.role === "SUPERADMIN") {
       return res.json({ success: true, error: false, data: { role: "SUPERADMIN", permissions: FULL_PERMS(false) } });
     }
+    await ensureSystemRoles(); // self-healing: works even if nobody has opened Roles & Staff / run the seed script yet
     const roleDoc = await RoleModel.findOne({ name: user.role });
     const permissions = roleDoc ? roleDoc.permissions : (user.role === "ADMIN" ? FULL_PERMS(true) : EMPTY_PERMS());
     return res.json({ success: true, error: false, data: { role: user.role, permissions } });

@@ -49,3 +49,31 @@ const auth = async (req, res, next) => {
 };
 
 export default auth;
+
+// Same identification as `auth` above, but never blocks the request — if
+// no token is present, or it's invalid/expired, this just proceeds as an
+// anonymous request instead of rejecting it. Used on the small number of
+// routes that are intentionally open to anyone (e.g. submitting a support
+// ticket without being logged in) but still need to know WHO the caller
+// is when they happen to already be logged in — most importantly so a
+// Demo Admin's identity reaches the interception check in
+// src/lib/apiHandler.js even on a route that doesn't otherwise require
+// auth at all. Without this, a Demo Admin could submit things through a
+// no-auth route and have it actually written for real, since apiHandler.js
+// can only intercept a request it can attribute to a specific user.
+export const optionalAuth = async (req, res, next) => {
+  try {
+    const token =
+      req.cookies?.accessToken ||
+      req?.headers?.authorization?.split(" ")[1];
+
+    if (token && process.env.JWT_SECRET_ACCESS) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET_ACCESS);
+      if (decoded?.id) req.userId = decoded.id;
+    }
+  } catch {
+    // Invalid/expired token on an optional-auth route — treat exactly
+    // like "not logged in" rather than rejecting, unlike `auth` above.
+  }
+  next();
+};

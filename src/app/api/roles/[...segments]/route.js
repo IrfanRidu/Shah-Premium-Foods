@@ -1,6 +1,6 @@
 import { createNextHandler } from "@/lib/apiHandler";
 import auth from "@/server/middlewares/auth";
-import { superAdminOnly } from "@/server/middlewares/permission";
+import { superAdminOrDemo } from "@/server/middlewares/permission";
 import {
   getAllRolesController,
   createRoleController,
@@ -10,12 +10,18 @@ import {
   getMyPermissionsController,
 } from "@/server/controllers/role.controller";
 
+// Demo Admin can reach every one of these (superAdminOrDemo) so the Roles
+// & Staff page is fully clickable in demo mode — any actual write is then
+// caught and simulated centrally by apiHandler.js before it touches the
+// database. (Audit Log, elsewhere, deliberately stays on the stricter
+// superAdminOnly — that one's meant to be genuinely inaccessible, not
+// simulated.)
 const ROUTES = {
-  "GET:/all":              [[auth, superAdminOnly], getAllRolesController],
-  "POST:/create":          [[auth, superAdminOnly], createRoleController],
-  "PUT:/update":           [[auth, superAdminOnly], updateRoleController],
-  "DELETE:/delete":        [[auth, superAdminOnly], deleteRoleController],
-  "PUT:/assign":           [[auth, superAdminOnly], assignUserRoleController],
+  "GET:/all":              [[auth, superAdminOrDemo], getAllRolesController],
+  "POST:/create":          [[auth, superAdminOrDemo], createRoleController],
+  "PUT:/update":           [[auth, superAdminOrDemo], updateRoleController],
+  "DELETE:/delete":        [[auth, superAdminOrDemo], deleteRoleController],
+  "PUT:/assign":           [[auth, superAdminOrDemo], assignUserRoleController],
   "GET:/my-permissions":   [[auth], getMyPermissionsController],
 };
 

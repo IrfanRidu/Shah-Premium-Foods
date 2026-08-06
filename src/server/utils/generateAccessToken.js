@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 // session is a bigger blast radius than a customer one, so it's worth
 // forcing more frequent re-authentication specifically for those roles.
 // Regular customers keep the existing 15m default, unchanged.
-const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+const ADMIN_ROLES = new Set(["ADMIN", "SUPERADMIN", "DEMO_ADMIN"]);
 const DEFAULT_ACCESS_EXPIRE = "15m";
 const ADMIN_ACCESS_EXPIRE = process.env.ADMIN_ACCESS_TOKEN_EXPIRE || "10m";
 

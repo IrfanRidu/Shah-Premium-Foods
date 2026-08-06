@@ -1,48 +1,89 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSelector } from "react-redux";
 import {
-  FaUser, FaBox, FaMapMarkerAlt, FaCog, FaStore, FaClipboardList,
+  FaUser, FaBox, FaCog, FaStore, FaClipboardList,
   FaUsers, FaUpload, FaBolt, FaTag, FaWarehouse, FaChartLine, FaUserShield,
-  FaTruck, FaFileAlt, FaHeadset, FaUserTie, FaHistory,
+  FaTruck, FaFileAlt, FaHeadset, FaUserTie, FaHistory, FaHeart,
+  FaTachometerAlt, FaChevronDown, FaFlask,
 } from "react-icons/fa";
-import { isAdmin, isSuperAdmin } from "@/lib/utils";
+import { isSuperAdmin, hasFullDashboardAccess } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
 import SafeImage from "@/components/SafeImage";
 import IdleLogoutProvider from "@/components/IdleLogoutProvider";
 
+// Personal-account section — identical set for every logged-in role
+// (a Super Admin still has their own profile/orders too). Addresses used
+// to be a 5th link here; it now lives inside My Profile as a tab instead
+// (see dashboard/profile/page.jsx), and Wishlist is new.
 const USER_LINKS = [
   { href: "/dashboard/profile",  label: "My Profile",  icon: FaUser },
   { href: "/dashboard/myorders", label: "My Orders",   icon: FaBox },
-  { href: "/dashboard/address",  label: "Addresses",   icon: FaMapMarkerAlt },
   { href: "/dashboard/submit-list", label: "Submit Shopping List", icon: FaFileAlt },
+  { href: "/dashboard/wishlist", label: "Wishlist",    icon: FaHeart },
 ];
 
-// Each admin link declares which permission module/action it needs
-const ADMIN_LINKS = [
-  { href: "/dashboard/category",       label: "Categories",     icon: FaStore,        module: "categories", action: "view" },
-  { href: "/dashboard/subcategory",    label: "Sub-Categories", icon: FaStore,        module: "categories", action: "view" },
-  { href: "/dashboard/product",        label: "Products",       icon: FaBox,          module: "products",   action: "view" },
-  { href: "/dashboard/upload-product", label: "Upload Product", icon: FaUpload,       module: "products",   action: "create" },
-  { href: "/dashboard/inventory",      label: "Inventory",      icon: FaWarehouse,    module: "inventory",  action: "view" },
-  { href: "/dashboard/product-requests", label: "Product Requests", icon: FaFileAlt, module: "inventory", action: "view" },
-  { href: "/dashboard/campaigns",      label: "Campaigns",      icon: FaBolt,         module: "campaigns", action: "view" },
-  { href: "/dashboard/coupons",        label: "Coupons",        icon: FaTag,          module: "coupons",    action: "view" },
-  { href: "/dashboard/delivery-zones", label: "Delivery Zones", icon: FaTruck,        module: "settings",   action: "view" },
-  { href: "/dashboard/admin-orders",   label: "All Orders",     icon: FaClipboardList,module: "orders",     action: "view" },
-  { href: "/dashboard/customer-care",  label: "Customer Care",  icon: FaHeadset,      module: "customerCare", action: "view" },
-  { href: "/dashboard/hr-payroll",     label: "HR & Payroll",   icon: FaUserTie,      module: "hrPayroll",  action: "view" },
-  { href: "/dashboard/admin-users",    label: "Customers",      icon: FaUsers,        module: "customers",  action: "view" },
-  { href: "/dashboard/analytics",      label: "Analytics",      icon: FaChartLine,    module: "analytics",  action: "view" },
-  { href: "/dashboard/site-settings",  label: "Site Settings",  icon: FaCog,          module: "settings",   action: "view" },
-  // Section 13 (Admin Panel Security): uses the existing superAdminOnly
-  // flag (see canSee() below) rather than module/action — matches the
-  // route itself, which is gated by superAdminOnly in permission.js, not
-  // the general checkPermission(module, action) system every other link
-  // here uses.
-  { href: "/dashboard/audit-log",      label: "Audit Log",      icon: FaHistory,      superAdminOnly: true },
-  { href: "/dashboard/roles",          label: "Roles & Staff",  icon: FaUserShield,   module: "roles",      action: "view", superAdminOnly: true },
+// The flat 17-link admin list used to just dump everything one after
+// another with no grouping at all. Regrouped into the exact 6 categories
+// from the spec — every link below maps to exactly one category, nothing
+// dropped, nothing duplicated. Each link still declares the
+// permission module/action it needs, same mechanism as before, just now
+// nested one level under its category.
+const ADMIN_CATEGORIES = [
+  {
+    title: "Products",
+    links: [
+      { href: "/dashboard/category",         label: "Categories",       icon: FaStore,         module: "categories", action: "view" },
+      { href: "/dashboard/subcategory",      label: "Sub-Categories",   icon: FaStore,         module: "categories", action: "view" },
+      { href: "/dashboard/product",          label: "Products",         icon: FaBox,           module: "products",   action: "view" },
+      { href: "/dashboard/upload-product",   label: "Upload Product",   icon: FaUpload,        module: "products",   action: "create" },
+      { href: "/dashboard/inventory",        label: "Inventory",        icon: FaWarehouse,     module: "inventory",  action: "view" },
+      { href: "/dashboard/product-requests", label: "Product Requests", icon: FaFileAlt,       module: "inventory",  action: "view" },
+    ],
+  },
+  {
+    title: "Analytics",
+    links: [
+      { href: "/dashboard/analytics", label: "Analytics", icon: FaChartLine, module: "analytics", action: "view" },
+    ],
+  },
+  {
+    title: "Customer care and call center",
+    links: [
+      { href: "/dashboard/admin-orders",  label: "All Orders",    icon: FaClipboardList, module: "orders",       action: "view" },
+      { href: "/dashboard/customer-care", label: "Customer Care", icon: FaHeadset,       module: "customerCare", action: "view" },
+      { href: "/dashboard/admin-users",   label: "Customers",     icon: FaUsers,         module: "customers",    action: "view" },
+    ],
+  },
+  {
+    title: "Website Maintenance",
+    links: [
+      { href: "/dashboard/campaigns",      label: "Campaigns",      icon: FaBolt, module: "campaigns", action: "view" },
+      { href: "/dashboard/coupons",        label: "Coupons",        icon: FaTag,  module: "coupons",   action: "view" },
+      { href: "/dashboard/delivery-zones", label: "Delivery Zones", icon: FaTruck, module: "settings",  action: "view" },
+      { href: "/dashboard/site-settings",  label: "Site Settings",  icon: FaCog,  module: "settings",  action: "view" },
+    ],
+  },
+  {
+    title: "HR and Payroll",
+    links: [
+      { href: "/dashboard/hr-payroll", label: "HR & Payroll", icon: FaUserTie, module: "hrPayroll", action: "view" },
+    ],
+  },
+  {
+    title: "Security and permissions",
+    links: [
+      { href: "/dashboard/roles", label: "Roles & Staff", icon: FaUserShield, module: "roles", action: "view" },
+      // No `module`/`action` — Audit Log isn't part of the RoleModel
+      // permission schema at all, it's gated purely by the strict flag
+      // below. Deliberately kept hidden from Demo Admin too (see
+      // strictSuperAdminOnly in canSee()) — a real trail of other
+      // people's activity isn't "functionality" a demo tour should show.
+      { href: "/dashboard/audit-log", label: "Audit Log", icon: FaHistory, strictSuperAdminOnly: true },
+    ],
+  },
 ];
 
 function SideLink({ href, label, icon: Icon }) {
@@ -57,19 +98,51 @@ function SideLink({ href, label, icon: Icon }) {
   );
 }
 
+// Collapsible category — starts CLOSED. Clicking the header toggles it
+// open/shut. (Previously defaulted open; changed per updated spec so the
+// sidebar loads compact and the user opens only the section they need.)
+function SidebarCategory({ title, links }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-start justify-between gap-2 px-4 pt-3 pb-1 text-xs uppercase tracking-widest text-theme-muted font-semibold hover:text-theme transition-colors text-left"
+      >
+        <span className="text-left">{title}</span>
+        <FaChevronDown size={10} className={`shrink-0 mt-0.5 transition-transform duration-200 ${open ? "" : "-rotate-90"}`} />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1">
+          {links.map((l) => <SideLink key={l.href} {...l} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }) {
   const user        = useSelector((s) => s.user);
   const permissions = useSelector((s) => s.permissions.permissions);
+  const demoMode    = user.role === "DEMO_ADMIN";
 
   const canSee = (link) => {
-    if (isSuperAdmin(user.role)) return true;
-    if (link.superAdminOnly) return false;
+    // Audit Log: genuinely hidden from Demo Admin too, not just shown
+    // and simulated — see Phase 3 notes in PROGRESS_TRACKER.md.
+    if (link.strictSuperAdminOnly) return isSuperAdmin(user.role);
+    // Super Admin AND Demo Admin see the same full breadth everywhere else.
+    if (hasFullDashboardAccess(user.role)) return true;
     if (user.role === "ADMIN" && !permissions?.[link.module]) return true; // legacy admin fallback (full access)
     return !!permissions?.[link.module]?.[link.action];
   };
 
-  const visibleAdminLinks = ADMIN_LINKS.filter(canSee);
-  const showAdminSection = isAdmin(user.role) || visibleAdminLinks.length > 0;
+  const visibleCategories = ADMIN_CATEGORIES
+    .map((cat) => ({ ...cat, links: cat.links.filter(canSee) }))
+    .filter((cat) => cat.links.length > 0);
+
+  const showAdminSection = visibleCategories.length > 0;
 
   return (
     <IdleLogoutProvider>
@@ -81,32 +154,49 @@ export default function DashboardLayout({ children }) {
       </div>
       <div className="flex gap-6">
         {/* Sidebar */}
-        <aside className="hidden md:flex flex-col gap-1 w-56 shrink-0">
-          <div className="bg-[var(--color-surface)] border border-theme rounded-2xl p-4 mb-2">
-            <div className="flex items-center justify-end mb-2">
+        <aside className="hidden md:flex flex-col gap-1 w-60 shrink-0">
+          <div className="relative bg-[var(--color-surface)] border border-theme rounded-2xl p-3 mb-2">
+            <div className="absolute top-2.5 right-2.5">
               <NotificationBell />
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 pr-7">
               {user.avatar
-                ? <SafeImage src={user.avatar} alt={user.name} width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
-                : <div className="h-10 w-10 rounded-full bg-[var(--color-border)] flex items-center justify-center text-theme-muted"><FaUser /></div>
+                ? <SafeImage src={user.avatar} alt={user.name} width={40} height={40} className="h-10 w-10 rounded-full object-cover shrink-0" />
+                : <div className="h-10 w-10 rounded-full bg-[var(--color-border)] flex items-center justify-center text-theme-muted shrink-0"><FaUser /></div>
               }
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{user.name}</p>
                 <p className="text-xs text-theme-muted truncate">{user.email}</p>
                 {user.role && user.role !== "USER" && (
-                  <span className="badge text-[10px] mt-0.5">{user.role}</span>
+                  demoMode ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] mt-0.5 badge"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--color-secondary) 16%, transparent)", color: "var(--color-secondary)" }}
+                    >
+                      <FaFlask size={8} /> DEMO ADMIN
+                    </span>
+                  ) : (
+                    <span className="badge text-[10px] mt-0.5">{user.role}</span>
+                  )
                 )}
               </div>
             </div>
+            {demoMode && (
+              <p className="text-[11px] text-theme-muted mt-2 pt-2 border-t border-theme leading-snug">
+                You're exploring a demo account — nothing you do here changes the real site.
+              </p>
+            )}
           </div>
 
           <nav className="flex flex-col gap-1">
             {USER_LINKS.map((l) => <SideLink key={l.href} {...l} />)}
-            {showAdminSection && visibleAdminLinks.length > 0 && (
+
+            {showAdminSection && (
               <>
-                <p className="px-4 pt-3 pb-1 text-xs uppercase tracking-widest text-theme-muted font-semibold">Admin</p>
-                {visibleAdminLinks.map((l) => <SideLink key={l.href} {...l} />)}
+                <SideLink href="/dashboard" label="Dashboard Overview" icon={FaTachometerAlt} />
+                {visibleCategories.map((cat) => (
+                  <SidebarCategory key={cat.title} title={cat.title} links={cat.links} />
+                ))}
               </>
             )}
           </nav>

@@ -3,12 +3,14 @@ import { Provider } from "react-redux";
 import { Toaster } from "react-hot-toast";
 import { store } from "@/store/store";
 import GlobalProvider from "./GlobalProvider";
+import DemoModeNotice from "@/components/DemoModeNotice";
 
 export default function Providers({ children }) {
   return (
     <Provider store={store}>
       <GlobalProvider>
         {children}
+        <DemoModeNotice />
         <Toaster
           position="top-center"
           containerStyle={{

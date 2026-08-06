@@ -82,6 +82,12 @@ export const demoUsers = [
   { name: "Manager Mim",      email: "manager@shahpremiumfoods.com",    password: "Mgr@12345",  role: "MANAGER",    mobile: "+8801711000004" },
   { name: "Staff Emon",       email: "staff@shahpremiumfoods.com",      password: "Stf@12345",  role: "STAFF",      mobile: "+8801711000005" },
   { name: "Analyst Anika",    email: "analyst@shahpremiumfoods.com",    password: "Analyst@123",role: "ANALYST",    mobile: "+8801711000006" },
+  // Give this account to anyone you want to give a full, safe, click-
+  // around tour of the dashboard — every write it makes is simulated
+  // centrally (see src/lib/apiHandler.js), nothing it does ever touches
+  // real data.
+  { name: "Demo Explorer",    email: "demoadmin@shahpremiumfoods.com",  password: "Demo@1234",  role: "DEMO_ADMIN", mobile: "+8801711000007" },
+  { name: "HR Priya",         email: "hr@shahpremiumfoods.com",         password: "Hr@123456",  role: "HR",         mobile: "+8801711000008" },
   { name: "Rahim Uddin",      email: "user1@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000001" },
   { name: "Karim Hossain",    email: "user2@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000002" },
   { name: "Fatima Begum",     email: "user3@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000003" },

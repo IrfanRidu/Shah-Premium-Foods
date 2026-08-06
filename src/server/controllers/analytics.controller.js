@@ -2,6 +2,10 @@ import OrderModel from "../models/order.model.js";
 import ProductModel from "../models/product.model.js";
 import UserModel from "../models/user.model.js";
 import ActivityLogModel from "../models/activityLog.model.js";
+import RoleModel from "../models/role.model.js";
+import { EmployeeModel } from "../models/employee.model.js";
+import SupportTicketModel from "../models/supportTicket.model.js";
+import ProductRequestModel from "../models/productRequest.model.js";
 
 const parseDate = (d) => (d ? new Date(d) : null);
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
@@ -249,6 +253,107 @@ export const getAllTimeBestSellingController = async (req, res) => {
     if (sorted.length >= 4) return res.json({ success: true, error: false, data: sorted });
     const fallback = await ProductModel.find({ publish: true }).sort({ createdAt: -1 }).limit(parseInt(limit));
     return res.json({ success: true, error: false, data: fallback });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: true, message: err.message });
+  }
+};
+
+// DASHBOARD OVERVIEW — powers the new /dashboard homepage ("after entering
+// the Super Admin dashboard the homepage will display a brief overview of
+// all sections"). Deliberately NOT gated behind checkPermission("analytics",
+// "view") like the rest of this file — every admin-tier role (including a
+// narrowly-scoped Employee who has no analytics access at all) lands on
+// this same /dashboard homepage, so it needs to be reachable by anyone
+// with dashboard access at all, then decide FOR ITSELF which of the 6
+// section cards that specific caller is allowed to see, mirroring the same
+// permission rules the sidebar itself uses (see dashboard/layout.jsx's
+// canSee()) so nobody ever sees a stat card for a section they couldn't
+// actually click into. Intentionally cheap (countDocuments-style, not the
+// heavier revenue/profit aggregation getDashboardMetricsController above
+// does) — this loads on every single dashboard visit, not just the
+// Analytics tab.
+export const getOverviewStatsController = async (req, res) => {
+  try {
+    const requester = await UserModel.findById(req.userId).select("role").lean();
+    const role = requester?.role;
+    if (!role || role === "USER") {
+      return res.status(403).json({ success: false, error: true, message: "Dashboard overview is only available to staff accounts." });
+    }
+
+    const FULL_ACCESS_ROLES = new Set(["SUPERADMIN", "DEMO_ADMIN"]);
+    let perms = {};
+    if (!FULL_ACCESS_ROLES.has(role)) {
+      const roleDoc = await RoleModel.findOne({ name: role }).lean();
+      perms = roleDoc?.permissions || {};
+    }
+    const canView = (module) => {
+      if (FULL_ACCESS_ROLES.has(role)) return true;
+      if (role === "ADMIN" && !perms[module]) return true; // legacy admin fallback — matches permission.js/layout.jsx exactly
+      return !!perms[module]?.view;
+    };
+
+    const sections = {};
+    const jobs = [];
+
+    if (canView("products")) {
+      jobs.push((async () => {
+        const [productCount, lowStockCount, pendingRequests] = await Promise.all([
+          ProductModel.countDocuments({}),
+          ProductModel.countDocuments({ $expr: { $lte: ["$stock", 10] } }), // same threshold as inventory.controller.js's own quick filter
+          ProductRequestModel.countDocuments({ status: "Pending" }),
+        ]);
+        sections.products = { productCount, lowStockCount, pendingRequests };
+      })());
+    }
+
+    if (canView("analytics")) {
+      jobs.push((async () => {
+        const since = new Date(); since.setHours(0, 0, 0, 0);
+        const [ordersToday, deliveredTotal] = await Promise.all([
+          OrderModel.countDocuments({ createdAt: { $gte: since } }),
+          OrderModel.countDocuments({ order_status: "Delivered" }),
+        ]);
+        sections.analytics = { ordersToday, deliveredTotal };
+      })());
+    }
+
+    if (canView("orders") || canView("customerCare") || canView("customers")) {
+      jobs.push((async () => {
+        const [pendingOrders, openTickets, customerCount] = await Promise.all([
+          canView("orders") ? OrderModel.countDocuments({ order_status: { $in: ["Pending", "Confirmed", "On-Hold"] } }) : null,
+          canView("customerCare") ? SupportTicketModel.countDocuments({ status: { $ne: "Closed" } }) : null,
+          canView("customers") ? UserModel.countDocuments({ role: "USER" }) : null,
+        ]);
+        sections.customerCare = { pendingOrders, openTickets, customerCount };
+      })());
+    }
+
+    if (canView("settings")) {
+      jobs.push((async () => {
+        sections.websiteMaintenance = { ok: true };
+      })());
+    }
+
+    if (canView("hrPayroll")) {
+      jobs.push((async () => {
+        const employeeCount = await EmployeeModel.countDocuments({ status: "Active" });
+        sections.hrPayroll = { employeeCount };
+      })());
+    }
+
+    if (FULL_ACCESS_ROLES.has(role)) {
+      jobs.push((async () => {
+        const [roleCount, staffCount] = await Promise.all([
+          RoleModel.countDocuments({}),
+          UserModel.countDocuments({ role: { $nin: ["USER"] } }),
+        ]);
+        sections.security = { roleCount, staffCount };
+      })());
+    }
+
+    await Promise.all(jobs);
+
+    return res.json({ success: true, error: false, data: { role, sections } });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }

@@ -120,12 +120,12 @@ npm start        # production server
 | `/dashboard/admin-orders` | Admin: live order feed, invoice/label printing, call customer |
 | `/dashboard/analytics` | Admin: financial dashboard with charts |
 | `/dashboard/site-settings` | Admin: site customization, base currency |
-| `/dashboard/roles` | Super Admin only: custom roles & permissions |
+| `/dashboard/roles` | Super Admin (+ Demo Admin, simulated): custom roles & permissions |
 
 ---
 
 ## 🔧 Notes
 
-- Demo accounts (printed by `npm run seed`) cover every role: SUPERADMIN, ADMIN, MODERATOR, EMPLOYEE, ANALYST, USER.
+- Demo accounts (printed by `npm run seed`) cover every role: SUPERADMIN, DEMO_ADMIN, ADMIN, HR, MANAGER, STAFF, ANALYST, USER. Demo Admin can click through literally everything a Super Admin can — every write it makes is simulated (see `src/lib/apiHandler.js`), nothing it does ever touches real data.
 - Barcode scanning works with real USB/Bluetooth scanners out of the box — they're keyboard-emulation devices, so the scan input just needs focus.
 - Admin-facing financial figures (analytics, orders list, inventory) follow the site's base currency (Site Settings), independent of any individual shopper's own currency choice.

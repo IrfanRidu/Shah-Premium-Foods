@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { setUserDetails, logout } from "@/store/userSlice";
 import { setCartItem, resetCart } from "@/store/cartSlice";
 import { setAddressList } from "@/store/addressSlice";
+import { setWishlistItems } from "@/store/wishlistSlice";
 import { setOrder } from "@/store/orderSlice";
 import { setAllCategory, setAllSubCategory, setLoadingCategory } from "@/store/productSlice";
 import { setSiteSettings } from "@/store/siteSettingsSlice";
@@ -23,6 +24,7 @@ const GlobalContext = createContext({
   fetchUser: () => {},
   fetchCartItems: () => {},
   fetchAddress: () => {},
+  fetchWishlist: () => {},
   fetchOrders: () => {},
   fetchCategories: () => {},
   fetchSiteSettings: () => {},
@@ -72,6 +74,13 @@ export default function GlobalProvider({ children }) {
     try {
       const r = await Axios({ ...api.getAddress });
       if (r.data?.success) dispatch(setAddressList(r.data.data));
+    } catch {}
+  }, [dispatch]);
+
+  const fetchWishlist = useCallback(async () => {
+    try {
+      const r = await Axios({ ...api.getWishlist });
+      if (r.data?.success) dispatch(setWishlistItems(r.data.data));
     } catch {}
   }, [dispatch]);
 
@@ -173,8 +182,8 @@ export default function GlobalProvider({ children }) {
   }, [dispatch, ratesUpdatedAt]);
 
   const refreshAll = useCallback(() =>
-    Promise.all([fetchUser(), fetchCartItems(), fetchAddress(), fetchOrders()]),
-    [fetchUser, fetchCartItems, fetchAddress, fetchOrders]
+    Promise.all([fetchUser(), fetchCartItems(), fetchAddress(), fetchWishlist(), fetchOrders()]),
+    [fetchUser, fetchCartItems, fetchAddress, fetchWishlist, fetchOrders]
   );
 
   // Fire-and-forget activity log
@@ -286,6 +295,7 @@ export default function GlobalProvider({ children }) {
       fetchUser().then(() => {
         fetchCartItems();
         fetchAddress();
+        fetchWishlist();
         fetchOrders();
       });
     }
@@ -345,11 +355,11 @@ export default function GlobalProvider({ children }) {
   // that groups them actually works: this only produces a new reference
   // when one of them does.
   const contextValue = useMemo(() => ({
-    fetchUser, fetchCartItems, fetchAddress, fetchOrders,
+    fetchUser, fetchCartItems, fetchAddress, fetchWishlist, fetchOrders,
     fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
     fetchExchangeRates, refreshAll, logActivity,
   }), [
-    fetchUser, fetchCartItems, fetchAddress, fetchOrders,
+    fetchUser, fetchCartItems, fetchAddress, fetchWishlist, fetchOrders,
     fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
     fetchExchangeRates, refreshAll, logActivity,
   ]);

@@ -2,6 +2,7 @@ import SupportTicketModel from "../models/supportTicket.model.js";
 import UserModel from "../models/user.model.js";
 import OrderModel from "../models/order.model.js";
 import { createNotification } from "./notification.controller.js";
+import { maskFieldsForDemo, maskEmail, maskPhone } from "../utils/demoMask.js";
 
 // LIST tickets (admin) — filter by status
 export const listTicketsController = async (req, res) => {
@@ -17,7 +18,8 @@ export const listTicketsController = async (req, res) => {
       SupportTicketModel.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     ]);
     const statusCounts = counts.reduce((acc, c) => ({ ...acc, [c._id]: c.count }), {});
-    return res.json({ success: true, error: false, data: { tickets, total, statusCounts, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) } });
+    const safeTickets = maskFieldsForDemo(req.userRole, tickets, { customerEmail: maskEmail, customerPhone: maskPhone });
+    return res.json({ success: true, error: false, data: { tickets: safeTickets, total, statusCounts, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) } });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }

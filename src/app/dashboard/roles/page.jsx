@@ -4,7 +4,7 @@ import { useSelector } from "react-redux";
 import { FaPlus, FaEdit, FaTrash, FaLock, FaTimes, FaUserShield } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
-import { axiosToastError, isSuperAdmin } from "@/lib/utils";
+import { axiosToastError, hasFullDashboardAccess } from "@/lib/utils";
 import ConfirmBox from "@/components/ConfirmBox";
 import toast from "react-hot-toast";
 
@@ -126,7 +126,7 @@ export default function RolesPage() {
     catch (err) { axiosToastError(err); }
   };
 
-  if (!isSuperAdmin(myRole)) {
+  if (!hasFullDashboardAccess(myRole)) {
     return (
       <div className="text-center py-20">
         <FaLock className="text-4xl text-theme-muted mx-auto mb-3"/>

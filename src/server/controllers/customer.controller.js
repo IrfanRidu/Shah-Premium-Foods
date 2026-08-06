@@ -2,6 +2,9 @@ import UserModel from "../models/user.model.js";
 import OrderModel from "../models/order.model.js";
 import AddressModel from "../models/address.model.js";
 import mongoose from "mongoose";
+import { maskFieldsForDemo, maskEmail, maskPhone } from "../utils/demoMask.js";
+
+const CUSTOMER_PII_MASKERS = { email: maskEmail, mobile: maskPhone };
 
 // GET all customers with order stats, filter, sort (admin)
 export const getCustomersController = async (req, res) => {
@@ -58,10 +61,11 @@ export const getCustomersController = async (req, res) => {
     ]);
 
     const total = countResult[0]?.total || 0;
+    const safeCustomers = maskFieldsForDemo(req.userRole, customers, CUSTOMER_PII_MASKERS);
 
     return res.json({
       success: true, error: false,
-      data: { customers, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) },
+      data: { customers: safeCustomers, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
@@ -75,12 +79,13 @@ export const getCustomerDetailController = async (req, res) => {
     const customer = await UserModel.findById(id).select("-password -sessions -forgot_password_otp -forgot_password_expiry").populate("address_details");
     if (!customer) return res.status(404).json({ success: false, error: true, message: "Customer not found" });
 
+    const safeCustomer = maskFieldsForDemo(req.userRole, customer, CUSTOMER_PII_MASKERS);
     const orders = await OrderModel.find({ userId: id }).sort({ createdAt: -1 });
     const totalSpent = orders.filter((o) => o.order_status !== "Cancelled").reduce((s, o) => s + (o.totalAmt || 0), 0);
 
     return res.json({
       success: true, error: false,
-      data: { customer, orders, stats: { totalOrders: orders.length, totalSpent, avgOrderValue: orders.length ? totalSpent / orders.length : 0 } },
+      data: { customer: safeCustomer, orders, stats: { totalOrders: orders.length, totalSpent, avgOrderValue: orders.length ? totalSpent / orders.length : 0 } },
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
@@ -98,7 +103,8 @@ export const exportCustomersController = async (req, res) => {
       { $sort: { createdAt: -1 } },
       { $limit: 5000 },
     ]);
-    return res.json({ success: true, error: false, data: customers });
+    const safeCustomers = maskFieldsForDemo(req.userRole, customers, CUSTOMER_PII_MASKERS);
+    return res.json({ success: true, error: false, data: safeCustomers });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }
