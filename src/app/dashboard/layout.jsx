@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
+import toast from "react-hot-toast";
 import {
   FaUser, FaBox, FaCog, FaStore, FaClipboardList,
   FaUsers, FaUpload, FaBolt, FaTag, FaWarehouse, FaChartLine, FaUserShield,
@@ -13,6 +14,8 @@ import { isSuperAdmin, hasFullDashboardAccess } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
 import SafeImage from "@/components/SafeImage";
 import IdleLogoutProvider from "@/components/IdleLogoutProvider";
+import AgentStatusToggle from "@/modules/callcenter/components/AgentStatusToggle";
+import Softphone from "@/modules/callcenter/components/Softphone";
 
 // Personal-account section — identical set for every logged-in role
 // (a Super Admin still has their own profile/orders too). Addresses used
@@ -52,9 +55,20 @@ const ADMIN_CATEGORIES = [
   {
     title: "Customer care and call center",
     links: [
+      { href: "/dashboard/call-center",   label: "Agent Dashboard", icon: FaHeadset,       module: "customerCare", action: "view" },
+      { href: "/dashboard/call-center/orders", label: "My Order Queue", icon: FaClipboardList, module: "customerCare", action: "view" },
       { href: "/dashboard/admin-orders",  label: "All Orders",    icon: FaClipboardList, module: "orders",       action: "view" },
       { href: "/dashboard/customer-care", label: "Customer Care", icon: FaHeadset,       module: "customerCare", action: "view" },
       { href: "/dashboard/admin-users",   label: "Customers",     icon: FaUsers,         module: "customers",    action: "view" },
+      // Session 2 additions — genuinely hidden from everyone but a real
+      // Super Admin (same strictSuperAdminOnly pattern as Audit Log
+      // below), matching the spec's explicit "Only Super Admin can:
+      // Monitor every active call, Monitor all agents... View all
+      // analytics... View audit logs" list.
+      { href: "/dashboard/call-center-admin",             label: "Live Agent Monitor", icon: FaHeadset, strictSuperAdminOnly: true },
+      { href: "/dashboard/call-center-admin/reports",     label: "CRM Reports",        icon: FaChartLine, strictSuperAdminOnly: true },
+      { href: "/dashboard/call-center-admin/change-log",  label: "CRM Change History", icon: FaHistory, strictSuperAdminOnly: true },
+      { href: "/dashboard/call-center-admin/settings",    label: "Routing & Queue Settings", icon: FaHeadset, strictSuperAdminOnly: true },
     ],
   },
   {
@@ -125,8 +139,10 @@ function SidebarCategory({ title, links }) {
 
 export default function DashboardLayout({ children }) {
   const user        = useSelector((s) => s.user);
-  const permissions = useSelector((s) => s.permissions.permissions);
+  const permissions = useSelector((s) => s.permissions);
   const demoMode    = user.role === "DEMO_ADMIN";
+  const pathname    = usePathname();
+  const router      = useRouter();
 
   const canSee = (link) => {
     // Audit Log: genuinely hidden from Demo Admin too, not just shown
@@ -134,8 +150,8 @@ export default function DashboardLayout({ children }) {
     if (link.strictSuperAdminOnly) return isSuperAdmin(user.role);
     // Super Admin AND Demo Admin see the same full breadth everywhere else.
     if (hasFullDashboardAccess(user.role)) return true;
-    if (user.role === "ADMIN" && !permissions?.[link.module]) return true; // legacy admin fallback (full access)
-    return !!permissions?.[link.module]?.[link.action];
+    if (user.role === "ADMIN" && !permissions.permissions?.[link.module]) return true; // legacy admin fallback (full access)
+    return !!permissions.permissions?.[link.module]?.[link.action];
   };
 
   const visibleCategories = ADMIN_CATEGORIES
@@ -144,8 +160,38 @@ export default function DashboardLayout({ children }) {
 
   const showAdminSection = visibleCategories.length > 0;
 
+  // Access guard: previously the sidebar simply hid links a role
+  // couldn't see, but nothing stopped someone from typing a restricted
+  // URL directly — the page would render, its data fetches would 401/
+  // 403, and whoever was looking at it saw a half-broken page with a
+  // raw "Unauthorized"/"Permission denied" toast. This finds the most
+  // specific matching entry from the exact same ADMIN_CATEGORIES list
+  // already used for the sidebar (so there's one source of truth for
+  // "what does this route need", not two), and once the permissions
+  // state has actually finished loading (not before — redirecting
+  // during that brief window would incorrectly boot a legitimate,
+  // still-loading Super Admin session), sends anyone who can't see it
+  // to the home page with a generic message instead of confirming to
+  // a logged-out or under-privileged visitor that the page exists at
+  // all.
+  const allAdminLinks = ADMIN_CATEGORIES.flatMap((c) => c.links);
+  const matchedLink = allAdminLinks
+    .filter((l) => pathname === l.href || pathname.startsWith(`${l.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0]; // longest/most-specific match wins
+
+  const accessPending = !!matchedLink && !permissions.loaded;
+  const accessDenied = !!matchedLink && permissions.loaded && !canSee(matchedLink);
+
+  useEffect(() => {
+    if (accessDenied) {
+      toast.error("Page not found");
+      router.replace("/");
+    }
+  }, [accessDenied, pathname]);
+
   return (
     <IdleLogoutProvider>
+    {user.role === "CALL_CENTER_AGENT" && <Softphone />}
     <div className="container mx-auto px-4 py-8">
       {/* Fix 4: on mobile the sidebar (and its notification bell) is
           hidden, so surface the bell here too. */}
@@ -186,6 +232,14 @@ export default function DashboardLayout({ children }) {
                 You're exploring a demo account — nothing you do here changes the real site.
               </p>
             )}
+            {/* Call Center CRM module (Session 2): live status toggle,
+                shown only for the dedicated agent role — not every
+                dashboard user needs an Available/Busy/Break control. */}
+            {user.role === "CALL_CENTER_AGENT" && (
+              <div className="mt-2 pt-2 border-t border-theme">
+                <AgentStatusToggle />
+              </div>
+            )}
           </div>
 
           <nav className="flex flex-col gap-1">
@@ -203,7 +257,13 @@ export default function DashboardLayout({ children }) {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 min-w-0">{children}</main>
+        <main className="flex-1 min-w-0">
+          {accessPending || accessDenied ? (
+            <div className="p-12 text-center text-theme-muted text-sm">Loading…</div>
+          ) : (
+            children
+          )}
+        </main>
       </div>
     </div>
     </IdleLogoutProvider>

@@ -89,6 +89,26 @@ export const ensureSystemRoles = async () => {
     { name: "MANAGER",    label: "Manager",     description: "Can manage products, categories, orders and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, products:{view:true,create:true,edit:true,delete:false}, categories:{view:true,create:true,edit:true,delete:false}, orders:{view:true,edit:true,cancel:true}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:true} } },
     { name: "STAFF",      label: "Staff",       description: "Can view and process orders, view inventory and customers.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, orders:{view:true,edit:true,cancel:false}, customers:{view:true,export:false,call:true}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
     { name: "ANALYST",    label: "Analyst",     description: "Read-only access to analytics, orders and inventory for reporting.", isSystemRole: true, permissions: { ...EMPTY_PERMS(), dashboard:{view:true}, analytics:{view:true}, orders:{view:true,edit:false,cancel:false}, customers:{view:true,export:true,call:false}, inventory:{view:true,edit:false}, products:{view:true,create:false,edit:false,delete:false} } },
+    // Session 2 addition: previously this role only ever got created
+    // on-demand by callCenterAgent.controller.js's own ensureAgentRole()
+    // — the FIRST time anyone used the dedicated "create call center
+    // agent" flow. Until then, it genuinely didn't exist as a Role
+    // document, so the generic role-assignment flow (assignUserRoleController
+    // below, used from admin-users' role dropdown) would 404 with "Role
+    // not found" for it specifically — the dropdown already listed
+    // "CALL_CENTER_AGENT" as an option (src/app/dashboard/admin-users/
+    // page.jsx's ROLES array), it just couldn't actually be assigned yet.
+    // Same label/description/core permission grant as ensureAgentRole()
+    // creates — spread EMPTY_PERMS() first here (unlike that function)
+    // purely for consistency with every other entry in this array;
+    // functionally equivalent either way, since a module key that's
+    // missing entirely and one explicitly set to false both evaluate as
+    // "no access" in canSee() (dashboard/layout.jsx) and the Object.entries
+    // filter (notification.controller.js) — this doesn't change behavior,
+    // just keeps every role's stored permissions object the same shape.
+    // ensureAgentRole()'s own `if (!role)` check means it will find and
+    // reuse this instead of creating a second, conflicting version.
+    { name: "CALL_CENTER_AGENT", label: "Call Center Agent", description: "Restricted role: Customer Care dashboard only (view orders, update order status, call customers).", isSystemRole: true, permissions: { ...EMPTY_PERMS(), customerCare: { view: true, edit: true } } },
     { name: "USER",       label: "Customer",    description: "Regular storefront customer.", isSystemRole: true, permissions: EMPTY_PERMS() },
   ];
   for (const r of defaults) {

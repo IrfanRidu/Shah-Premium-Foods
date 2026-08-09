@@ -46,6 +46,32 @@ const orderSchema = new mongoose.Schema(
     },
     refundNote: { type: String, default: "" },
     refundedAt: { type: Date, default: null },
+
+    // --- Call Center CRM module additions (Session 2) — additive only,
+    // deliberately separate from order_status (that enum stays untouched
+    // since delivery/payment logic elsewhere already branches on it).
+    // "Follow-up" and assignment are call-center concepts layered on top,
+    // not new order lifecycle states. ---
+    assignedAgent: { type: mongoose.Schema.ObjectId, ref: "employee", default: null },
+    assignedAt: { type: Date, default: null },
+    followUp: {
+      scheduled: { type: Boolean, default: false },
+      date: { type: Date, default: null },
+      note: { type: String, default: "" },
+    },
+    // General relationship notes (spec: "Customer Notes"), distinct from
+    // a single call's notes[] on callLog.model.js — this thread is
+    // scoped to the order/customer relationship as a whole.
+    crmNotes: {
+      type: [
+        {
+          text: { type: String, required: true },
+          addedBy: { type: mongoose.Schema.ObjectId, ref: "user" },
+          addedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -66,6 +92,7 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ order_status: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ assignedAgent: 1, createdAt: -1 });
 
 const OrderModel = mongoose.models.order || mongoose.model("order", orderSchema);
 export default OrderModel;

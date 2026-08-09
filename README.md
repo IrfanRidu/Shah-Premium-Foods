@@ -2,15 +2,30 @@
 
 A full-scale grocery e-commerce platform — a single Next.js 14 project (App
 Router). The storefront pages and the API both live in the same app as
-plain Next.js API routes; there's no separate backend process, custom
-server, or extra port to run.
+plain Next.js API routes.
+
+**⚠️ Updated (Call Center CRM module):** this app now runs via a custom
+`server.js` instead of the plain `next dev`/`next start` — required for
+the Socket.IO real-time layer the CRM module needs. `npm run dev` /
+`npm run start` already point at it; a plain-Next.js escape hatch
+(`npm run dev:next-only`) still exists if you ever need it. See
+`src/modules/callcenter/telephony/README.md` before deploying if you
+want the call center's telephony features working.
 
 **📋 See [STATUS.md](./STATUS.md) for the full changelog and bug-fix
 history** — it's also written to be read first by whoever (or whichever AI
 session) picks this project up next; just say "continue."
 
+**📞 See [PROGRESS_TRACKER.md](./PROGRESS_TRACKER.md)'s "SESSION 2" section**
+for the Enterprise Call Center CRM module added under
+`src/modules/callcenter/` — same "read this first" convention as STATUS.md,
+covers what's built, every design decision, and exactly where to resume
+if there's ever more work to do on it.
+
 **🚀 Deploying this to Vercel?** See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md)
-for a full walkthrough. **Setting it up locally?** See [SETUP.md](./SETUP.md).
+for a full walkthrough — note the custom-server change above affects this;
+the CRM module's telephony/README.md covers the VPS-based alternative.
+**Setting it up locally?** See [SETUP.md](./SETUP.md).
 
 ---
 

@@ -792,33 +792,254 @@ this LOG entry:
   this work is safe in the user's hands even if the sandbox misbehaves
   again.
 
-### Phase 2 — CRM data layer (models) — [ ] NOT STARTED
-- [ ] models/agentStatus.model.js, assignment.model.js,
+### Phase 2 — CRM data layer (models) — [x] DONE, verified on disk +
+tsc-clean: agentStatus/assignment/callRecording/callback/queueEntry/
+crmChangeLog models created; callLog/notification/order extended
+additively; all 6 new models registered in registerModels.js.
+- [x] models/agentStatus.model.js, assignment.model.js,
       callRecording.model.js, callback.model.js, queueEntry.model.js,
       crmChangeLog.model.js
-- [ ] Extend callLog.model.js / notification.model.js / order.model.js
+- [x] Extend callLog.model.js / notification.model.js / order.model.js
       (additive only, see design decisions)
-- [ ] Add every new model to registerModels.js
-- [ ] tsc-check all, verify on disk
+- [x] Add every new model to registerModels.js
+- [x] tsc-check all, verify on disk
 
-### Phase 3 — Services — [ ] assignmentService, crmChangeLogService,
-notificationService (targetUserId wrapper), queueService,
-callStatsService
-### Phase 4 — Socket.IO — [ ] server.js, socketServer.js, events.js,
-useSocket.js hook, package.json deps+scripts
-### Phase 5 — Core API routes — [ ] controllers/*, callcenter
-[...segments]/route.js, tighten agent CRUD to superAdminOnly
-### Phase 6 — Click-to-call+WhatsApp — [ ] phoneUtils, ClickToCallButton,
-WhatsAppButton, wire into admin-orders/admin-users/customer-care pages
-### Phase 7 — WebRTC/SIP client — [ ] sipClient.js, useSipClient,
-Softphone, IncomingCallModal, AgentStatusToggle
-### Phase 8 — Asterisk config + ARI service — [ ] config templates,
-ariClient.js, telephony README (honest: cannot live-test from sandbox)
-### Phase 9 — Agent dashboard baseline — [ ] stats cards + recent calls
-### Phase 10 — DEFERRED — Super Admin CRM console (live monitor, queue/
-routing settings, hold-music, reports+charts, undo viewer UI), full
-Order Visibility tabs+timeline, abandoned-order reassignment cron,
-final full-project re-check + zip
+### Phase 3 — Services — [x] DONE: assignmentService (round robin incl.
+least-loaded-agent picking, manual reassign, abandoned sweep, history),
+crmChangeLogService (log+undo, dot-path field revert), queueService
+(enqueue/oldest-waiter-connect/abandon), callStatsService (daily stats +
+performance series + company-wide), agentPresenceService (bridges
+userId->Employee->AgentStatus, auto-connects oldest queued caller when
+an agent goes available). Decided NOT to add a separate
+notificationService.js wrapper — extended the existing
+notification.controller.js's createNotification() in place instead
+(additive targetUserId param), since that's already the established
+single write path other controllers import directly; a wrapper would
+just be pointless indirection.
+### Phase 4 — Socket.IO — [x] DONE: server.js (root, custom Node+Next+
+Socket.IO server, ESM since package.json has "type":"module"; also
+hosts the abandoned-order-reassign interval sweep since it's now a
+persistent process), socketServer.js (JWT auth off the same httpOnly
+`accessToken` cookie + JWT_SECRET_ACCESS every HTTP route already uses,
+parsed off the raw handshake cookie header — no separate token-passing
+needed client-side; real `superadmins` room joined based on actual role
+lookup, not a broadcast-to-everyone shortcut — caught and fixed that in
+my own first draft before it shipped), events.js (event name constants),
+useSocket.js hook (withCredentials so the cookie rides along),
+package.json (added ari-client/sip.js/socket.io/socket.io-client;
+dev/start now run `node server.js`; kept `dev:next-only` as an escape
+hatch back to plain `next dev` if ever needed; `build` untouched).
+### Phase 5 — Core API routes — [x] DONE: 6 new controller files under
+modules/callcenter/controllers/ (agentStatus, callback, assignment,
+queue, changeLog, crmOrder) + extended callLog.controller.js in place
+(real-time status updates, notes thread, detail, filtered list) +
+extended notification.controller.js (already done in Phase 3, see
+above) + new `src/app/api/callcenter/[...segments]/route.js` (own
+ROUTES map, same createNextHandler pipeline as every other route) +
+hooked order-status changes into the CRM change-log from inside the
+existing order.controller.js (guarded in its own try/catch so a CRM
+logging hiccup can never break the core order-status update) + tightened
+customer-care's agent create/update/delete to superAdminOnly (done
+earlier, part of this phase's permission work).
+SECURITY FIX caught + closed this phase: listCallLogsController and
+listCallbacksController both accepted a client-supplied `scope=all`
+without checking the caller was actually super-admin-tier — a regular
+agent could have requested every other agent's calls/callbacks. Now
+resolves the caller's real role server-side and silently downgrades to
+scope=mine for anyone not in SUPER_ADMIN_ROLES, regardless of what the
+query string asked for.
+REAL BUG caught + fixed this phase: the str_replace that appended the
+real-time controllers to callLog.controller.js accidentally dropped
+getCallHistoryController's own return/catch/closing-brace, leaving
+every function after it nested one level too deep inside an unclosed
+function — a real syntax error, caught by the tsc gate (not shipped),
+root-caused by re-reading the file top-to-bottom rather than guessing,
+fixed by restoring the missing block, then re-verified clean.
+VERIFICATION METHOD UPGRADE this phase: beyond the tsc syntax gate, also
+wrote a one-off Python import-resolution audit — parses every
+import/require specifier out of every touched file and confirms it
+resolves to a real file on disk (handles both relative `../` paths and
+the `@/` alias per jsconfig.json). Caught nothing wrong this run (120,
+then 85 after the fix, imports all resolved) but is a materially
+stronger check than syntax-only and cheap to rerun — worth reusing for
+every future phase, not just this one.
+### Phase 6 — Click-to-call+WhatsApp — [x] DONE: phoneUtils.js (E.164
+normalize w/ configurable NEXT_PUBLIC_DEFAULT_COUNTRY_CODE, wa.me link
+builder, duration formatter). WhatsAppButton.jsx supports both a compact
+icon-only circle (matches icon-btn-call's exact sizing) and a labeled
+pill mode (`label` + `compact` props) for the two different existing
+button styles found across the 3 pages. New `.icon-btn-whatsapp` CSS
+class added to globals.css, WhatsApp brand green, same shape/pattern as
+the existing `.icon-btn-call`. Wired into all 3 real pages with existing
+tel: links, beside every existing Call touchpoint (not replacing them —
+Call stays on tel: until Phase 7's SIP softphone is ready to take over):
+admin-orders (1 spot), admin-users (2 spots: table row + detail modal),
+customer-care (2 spots: collapsed-row icon + expanded "Call Customer"
+pill). Verified: syntax-clean, all 30 imports resolve, all 3 pages
+confirmed actually importing+using the component (grep count check, not
+just "should have").
+NOTE for Phase 7: the existing `call()`/`handleCall()` functions in all
+3 pages still just do `tel:` — when the SIP softphone lands, these are
+the exact functions to redirect into `useSipClient().makeCall()` instead
+(or in addition to, for a tel: fallback on non-agent accounts, e.g. a
+plain ADMIN calling a customer ad hoc without being a provisioned
+call-center Employee — see logCallInitiatedController's existing
+"not every customerCare staff member is a call-center Employee" comment,
+same reasoning applies to who gets real WebRTC calling vs. tel: fallback).
+### Phase 7 — WebRTC/SIP client — [x] DONE: telephony/sipClient.js
+(framework-agnostic SIP.js v0.21 wrapper: UserAgent/Registerer/Inviter/
+SessionState, remote-audio element attach, DTMF, basic hold via track
+enable/disable — noted in-code that a "real" SDP-renegotiation hold is a
+known simplification to revisit against a live PBX). hooks/
+useSipClient.js (React binding: call state machine, CallLog API
+integration on answer/end, agent status auto-flips to on_call/available
+around calls). components/AgentStatusToggle.jsx (the 5 manual statuses
+only — ringing/on_call are automatic, never shown as agent-pickable),
+Softphone.jsx (persistent floating widget: connect toggle, active-call
+controls, renders IncomingCallModal.jsx when phoneState is "incoming").
+SIP CREDENTIAL PROVISIONING added (needed before any of the above can
+register to anything): employee.model.js additive sipUsername/
+sipPassword fields (plaintext for now — explicit in-code security note
+that production should encrypt at rest, not silently pretended as
+solved); generated via crypto.randomBytes (matching the existing temp-
+login-password pattern) in createCallCenterAgentController; new GET
+/api/callcenter/telephony/credentials endpoint returning sipUri/password/
+wsServer/sipDomain from ASTERISK_WS_URL + ASTERISK_SIP_DOMAIN env vars
+(503s clearly if telephony isn't configured yet, rather than a confusing
+generic failure).
+WIRED IN: AgentStatusToggle + Softphone added to dashboard/layout.jsx,
+gated to `user.role === "CALL_CENTER_AGENT"` only — not shown to every
+dashboard user. Softphone is `fixed` positioned so it didn't need a
+dedicated layout slot.
+BUG CAUGHT + FIXED before landing: useSipClient.js originally required
+a second NEXT_PUBLIC_SIP_DOMAIN client env var for makeCall() that
+could drift out of sync with the server's ASTERISK_SIP_DOMAIN (already
+returned by the credentials endpoint) — reused the fetched value via a
+ref instead, removed the redundant config surface and a dead no-op
+variable in the same pass.
+Also removed a non-existent `animate-pulse-once` Tailwind class from
+IncomingCallModal.jsx (would have silently done nothing — not a build
+error, just dead markup) — kept `animate-bounce` (a real utility) on the
+icon for the incoming-call visual cue.
+VERIFIED: tsc syntax-clean, 90 imports across 31 files all resolve
+(Python audit), brace-balance sanity check on the 3 most complex new
+files (useSipClient 30/30, Softphone 48/48, AgentStatusToggle 36/36).
+HONEST LIMITATION (repeated deliberately, this is the phase it matters
+most for): none of this SIP/WebRTC code has been exercised against a
+real Asterisk server — no telephony infra or network access in this
+sandbox. It's written correctly against the real SIP.js API as far as
+static review can confirm, but live-call verification is a Phase-8/
+your-VPS activity, not something already secretly tested here.
+### Phase 8 — Asterisk config + ARI call-routing service — [x] DONE:
+asterisk-config/{pjsip,extensions,http,rtp,ari}.conf (WebRTC WSS
+transport, Stasis-based dialplan handoff rather than app_queue for full
+programmatic control, TLS/NAT/RTP-port callouts inline),
+generatePjsipConfig.js (queries MongoDB for provisioned agents, writes
+pjsip_agents.conf — re-run on agent add/delete), ariClient.js (the real
+routing logic: sequential ring through available agents oldest-first,
+per-agent timeout->next agent, queue+MOH if all busy, recording via
+MixMonitor + a polling watcher that syncs finished files into
+CallRecording docs), telephony/README.md (full VPS walkthrough).
+BUGS CAUGHT + FIXED before landing, not just documented as known issues:
+(1) dead unused imports in ariClient.js removed. (2) the "agent becomes
+available -> connect oldest waiter" flow updated DB records but never
+actually touched the Asterisk channel — connectOldestWaiterTo() now
+populates callLogId, agentPresenceService.js now dynamically+guardedly
+calls a new bridgeQueuedCallerToAgent() so this is a REAL bridge, not
+just DB bookkeeping that looked complete but wasn't. (3) PJSIP endpoint
+naming mismatch (generatePjsipConfig.js uses sipUsername,
+ringAgent() was building from agentId._id) — fixed ringAgent() to use
+sipUsername (added to the 2 relevant .populate() calls). (4) resolved,
+not hand-waved, the real cross-process Socket.IO limitation if
+ariClient.js runs separately from server.js — wired it to start FROM
+server.js instead, guarded by ASTERISK_ARI_PASSWORD so a missing/
+unconfigured Asterisk never crashes the app on boot.
+VERIFIED: tsc syntax-clean, brace/paren balance on ariClient.js (66/66,
+153/153), 79 imports across 30 module files all resolve.
+HONEST LIMITATION: nothing in this phase has touched a real Asterisk
+server — no telephony infra/network access in this sandbox. Correct
+against documented config/API syntax as far as static review confirms;
+real-call verification is a your-VPS activity per the README.
+### Phase 9 — Agent dashboard baseline — [x] DONE: dashboard.controller.js
+(3 endpoints: my-stats, my-recent-calls, my-performance — all resolve
+the caller to their Employee/agent identity first, 403 cleanly if not a
+provisioned agent rather than leaking data), wired into the callcenter
+route. StatsCards.jsx (today's incoming/outgoing/missed/answered, total+
+average talk time, assigned/completed/pending orders — matches spec's
+list exactly). RecentCalls.jsx (last 10, status-colored, recording play
+link when available). New page at dashboard/call-center/page.jsx — added
+as "Agent Dashboard", first item in the existing Customer care and call
+center sidebar section (didn't touch the other 3 existing links there).
+Handles the not-a-provisioned-agent case gracefully (clean message +
+403, not a crash) rather than assuming every viewer is an agent.
+VERIFIED: tsc syntax-clean, 103 imports across 35 files resolve, grep-
+confirmed the sidebar link and all 3 new routes are actually wired (not
+just files sitting unreferenced).
+### Phase 10a — Super Admin CRM console — [x] DONE: Live Agent Monitor
+(dashboard/call-center-admin/page.jsx — real-time status grid + counts
+via the existing GET /agent-status/all + Socket.IO), CRM Reports
+(dashboard/call-center-admin/reports/page.jsx — recharts pie+bar,
+30s-interval refresh, new GET /dashboard/company-reports endpoint,
+superAdminOnly), CRM Change History + one-click undo (dashboard/
+call-center-admin/change-log/page.jsx — uses the existing GET
+/change-log + POST /change-log/undo endpoints, was already fully built
+server-side since Phase 5/3, just had no UI until now). All 3 wired into
+the sidebar using the exact same `strictSuperAdminOnly` pattern the
+pre-existing Audit Log link already used (genuinely hidden from
+DEMO_ADMIN too, not just simulated).
+GAPS CAUGHT + FIXED while wiring this up (things that looked done in
+earlier phases but weren't actually connected or were silently broken):
+(1) sweepDueCallbacks() (built Phase 5) was never scheduled anywhere —
+now runs every 60s from server.js, same pattern as the abandoned-order
+sweep. (2) AgentStatusToggle.jsx's socket listener compared against
+`socket.userId`, which never exists on the CLIENT-side socket object
+(only set server-side during auth) — this made the listener's filter
+condition permanently false, i.e. it silently did nothing since Phase 7.
+Fixed to track the agent's own employee id from its initial fetch and
+actually sync displayed status on real external changes (another tab, a
+super admin action) instead of a dead comparison.
+VERIFIED: tsc syntax-clean, 120 imports across 38 files resolve.
+DEFERRED to Phase 10b (queue/routing settings config UI, hold-music
+upload, agent management CRUD UI beyond what callCenterAgent.controller.js
+already exposes) and Phase 10c (Order Visibility tabs + customer
+timeline) — see below.
+
+### Phase 10c — Order Visibility tabs + timeline — [x] DONE:
+listCrmOrdersController (tabs: all/pending/completed/follow-up/
+cancelled map onto order_status where it already covers them, follow-up
+is its own field since it isn't a real order_status value — "mine" is a
+SCOPE via assignedAgent, not a tab, matching how the spec actually lists
+these 6 together), getOrderCrmDetailController (one call returns
+everything the timeline needs). OrderTimeline.jsx (Assigned Agent +
+Assignment Time + full Assignment History + Call History + Notes with
+add-note inline, in one panel — spec's exact list). New page at
+dashboard/call-center/orders/page.jsx (tab bar + list + slide-in
+timeline panel), added to the sidebar as "My Order Queue" right after
+Agent Dashboard.
+BUGS CAUGHT + FIXED before landing: (1) listCallLogsController's new
+orderId filter was written but the pre-existing mine/all scope logic
+below it still ran unconditionally, which would have silently
+restricted an order's call-history view to only calls where the
+CURRENT viewer happened to be the agent — fixed to skip that whole
+block when orderId is present, matching the comment's own stated intent
+that was never actually implemented. (2) crmOrder.controller.js's
+listCrmOrdersController had a genuinely dead SUPER_ADMIN_ROLES const
+and an unused UserModel import from an abandoned first draft (a role
+check that was written then decided against — "All Orders" is available
+to regular agents per spec, not restricted) — removed rather than left
+as harmless-looking clutter. (3) Caught a wrong guessed field name
+before it ever ran — used a `total ?? totalAmount` fallback chain for
+order price display without checking the real schema first; the actual
+field is `totalAmt`. Corrected by grepping the schema instead of
+guessing plausible names.
+VERIFIED: tsc syntax-clean, callLog.controller.js brace-balanced
+(111/111 after the fix), 112 imports across 37 files resolve.
+
+### Phase 10 remaining — queue/routing settings + hold-music config UI
+(lower priority: day-to-day CRM use doesn't depend on it, routing logic
+itself already works via ariClient.js's hardcoded sensible defaults —
+this would just be a UI to adjust ring timeout etc. without redeploying),
+final full-project re-check + zip.
 
 ## LOG (append-only, newest at bottom)
 - Session 2 started: read Batch 23 tracker + STATUS.md, deep-
@@ -830,3 +1051,350 @@ final full-project re-check + zip
   wrote this tracker section. Delivering a bug-fixes-only checkpoint
   zip now before continuing into Phase 2, specifically to de-risk
   further sandbox instability.
+- Phase 10 finished: queue/routing settings (new crmSettings model,
+  singleton-doc pattern, registered per the standard checklist), read
+  LIVE by ariClient.js at the start of each incoming call rather than
+  once at process startup — Super Admin changes take effect on the very
+  next call, no service restart. Caught a real bug while wiring this in:
+  renaming the old top-level RING_TIMEOUT_MS constant to
+  DEFAULT_RING_TIMEOUT_MS left two other call sites still referencing
+  the old, now-undefined name — syntactically valid JS (tsc's
+  allowJs/checkJs:false mode can't catch this class of bug, it's a
+  runtime ReferenceError, not a parse error), found by grepping for the
+  exact old identifier across the module after the rename rather than
+  assuming the rename was complete. Also found sendToQueue() was
+  hardcoding mohClass:"default" regardless of the setting — fixed to
+  actually use it.
+- FINAL FULL-PROJECT VERIFICATION PASS completed: every one of the 41
+  files in src/modules/callcenter/ plus every touched existing file
+  (bug fixes, extended models/controllers, sidebar, routes) individually
+  syntax-checked via the tsc rig — clean. Separately, a brute-force
+  brace/paren balance count across every module file — all balanced.
+  Separately again, the Python import-resolution audit — 254 import
+  specifiers across 59 files, every one resolves to a real file on disk.
+  Separately again, grepped for the exact stale-identifier bug class
+  just caught above, project-wide — zero remaining instances. All 5
+  original bug fixes re-confirmed present on disk one final time.
+  package.json re-confirmed valid JSON with all 4 new runtime
+  dependencies (socket.io, socket.io-client, sip.js, ari-client) and
+  dev/start scripts pointed at the new custom server.js.
+
+## STATUS: Bug fixes (Phase 1) + CRM module (Phases 2–10) both complete.
+Genuinely deliverable state: the whole application layer (data models,
+services, real-time layer, API routes, click-to-call/WhatsApp, softphone
+UI, agent dashboard, super admin console, order visibility+timeline,
+settings) is written, internally consistent, and verified by every
+static check available in this sandbox (syntax, import resolution,
+brace/paren balance, stale-identifier grep, actual wiring confirmation
+via grep counts rather than assuming a file's existence means it's used).
+The one thing that could NOT be verified here, stated once more plainly:
+live behavior against a real Asterisk server, because no telephony
+infrastructure or network access exists in this sandbox. Everything
+telephony-related is written correctly against documented APIs as far as
+static review can confirm; real-call verification is a your-VPS activity,
+walked through step by step in telephony/README.md.
+If resuming after this point: there is no more planned work. Re-verify
+the state of things (this file's own advice, repeated throughout) before
+assuming anything below this line is still true, then ask the user what
+they'd like next rather than guessing at further scope.
+
+---
+
+## POST-DELIVERY BUG REPORT (user caught this after the "final" zip)
+
+User ran `npm install && npm run dev` on real infrastructure and hit:
+`SyntaxError: Identifier 'NotificationModel' has already been declared`
+
+**Root cause:** the Session-2 edit to `notification.model.js` (extending
+the schema with targetUserId/new type enum values) used an `old_str`
+that ended right after the schema's closing `);` — it did NOT include
+the file's own trailing `index()` calls + `const NotificationModel = ...`
++ `export default` lines that came after that point in the original
+file. The `new_str` for that same edit DID include a fresh copy of
+those same trailing lines (needed to close out the replacement block
+correctly). Net effect: the replacement inserted a second copy of the
+index/export block immediately after the new schema, while the
+original file's own copy of those same lines — never targeted by
+`old_str` — remained untouched further down. Result: `const
+NotificationModel = ...` and `export default NotificationModel` each
+appeared TWICE in one file. This is a real `SyntaxError` in actual
+Node/V8, not a style issue — the whole app fails to boot.
+
+**Why my verification didn't catch it:** the tsc-based rig used
+throughout this build (`allowJs: true, checkJs: false, jsx: "preserve"`)
+parses JS/JSX for basic syntax validity but — confirmed by direct
+testing during this fix — does NOT flag duplicate top-level `const`
+declarations in that configuration. A real Node.js parser does (`node
+--check` reproduces the user's exact error message on a duplicate-const
+test file). This was a genuine blind spot in the verification method
+used for the entire build, not a one-off skipped check.
+
+**Fixed:** removed the duplicate trailing block, kept one copy.
+
+**Then audited the entire rest of the build for the same bug class**,
+since if it happened once from this exact edit pattern (extending
+existing trailing content via str_replace), it could plausibly have
+happened elsewhere:
+1. Grepped every model file for duplicate `export default` / duplicate
+   `mongoose.model()` calls specifically — all clean (employee.model.js
+   correctly shows 2 `mongoose.model()` calls, since it legitimately
+   defines 2 models — not a bug).
+2. Wrote a precise top-level-only (column-0, not nested) duplicate-
+   declaration + duplicate-export-default check in Python, ran it across
+   all 56 touched .js/.jsx files — zero further issues found.
+3. Confirmed `node --check` (the REAL V8 parser) doesn't try to resolve
+   imports (safe to run without a full install) and ran it across every
+   plain `.js` file touched this session (the .jsx files can't be
+   checked this way — V8 doesn't parse JSX — covered instead by check 2
+   above) — 100% pass, including every model file.
+
+**Verification methodology upgrade, for real this time:** `node --check`
+is now the authoritative check for `.js` files going forward — it's
+what the user's own `node server.js` / `next dev` will actually run
+through, and it catches classes of error (duplicate declarations, other
+genuine V8-level SyntaxErrors) that the tsc-in-permissive-JS-mode
+approach used for the rest of this build did not. For `.jsx` files
+(which `node --check` cannot parse), the top-level duplicate-declaration
+regex check is the supplementary layer. Any future extend-existing-file
+edit (the specific pattern that caused this — inserting new content
+that includes what LOOKS like it should be the file's natural trailing
+boilerplate) should get an immediate full re-view of the file afterward
+to confirm the trailing content wasn't ALSO left in place from before
+the edit, not just a batched syntax check days later.
+
+STATUS: fixed, audited project-wide, corrected zip re-delivered.
+
+---
+
+## POST-DELIVERY BUG REPORT #2 (user ran the CORRECTED zip for real)
+
+Error: `Error: This module cannot be imported from a Client Component
+module. It should only be used from a Server Component.` thrown from
+`node_modules/server-only/index.js`, crashing `node server.js` at boot.
+
+**Root cause:** `src/lib/mongodb.js` has `import "server-only"` at its
+top — a real, correct, pre-existing protection for the rest of this
+app, which only ever runs through Next.js's own webpack/SWC pipeline
+(API routes, Server Components). This custom `server.js`, by design
+(needed for Socket.IO), runs as PLAIN Node — loaded by Node's own native
+module loader, never touched by webpack. The `server-only` package
+differentiates "safe" vs. "throw" behavior using package.json export
+conditions that only webpack (via Next.js's config) defines; under
+plain Node's default resolution it falls through to the throwing build,
+even though nothing here is anywhere near an actual Client Component.
+3 files in the CRM module imported `lib/mongodb.js` directly and hit
+this the moment `server.js` (or, separately, `generatePjsipConfig.js`,
+also run standalone) tried to load: `socketServer.js`, `ariClient.js`,
+`generatePjsipConfig.js`.
+
+**Fix:** new `src/modules/callcenter/socket/dbConnectForServer.js` —
+the exact same connection logic as lib/mongodb.js (retry loop, pooling,
+mongoose settings, registerModels side-effect import), deliberately
+duplicated rather than importing the guarded file, specifically for
+code that runs in this plain-Node context. `lib/mongodb.js` itself was
+NOT touched — its guard is correct for every other part of this app and
+weakening it would reintroduce the exact accidental-client-bundling risk
+it exists to prevent. All 3 affected files switched to the new
+connector. `server.js` now also calls it once explicitly at startup,
+before the HTTP server starts listening, so no socket event or interval
+job can ever race against an unconnected database.
+
+**Then checked comprehensively for the same class of issue elsewhere**,
+since this was the second time a "looks like a one-off" bug turned out
+to need a full sweep:
+1. Grepped the entire callcenter module + server.js for imports of ALL
+   8 files in this app that carry a `server-only` guard (not just
+   mongodb.js) — only mongodb.js was ever actually imported.
+2. Grepped `src/server/models/` specifically — since `registerModels.js`
+   loads EVERY model unconditionally, any model importing a guarded
+   file would hit this too — found 2 more STRING matches, both verified
+   to be comment/prose mentions of a filename, not real `import`
+   statements (auditLog.model.js references lib/logger.js in a comment
+   explaining a design decision; registerModels.js references
+   lib/apiHandler.js in a comment explaining load order) — real risk:
+   zero.
+3. Wrote a precise regex pass matching only actual `import ... from`
+   statement syntax (skipping comment lines entirely) across all 61
+   files reachable from server.js (every model + the whole module) —
+   confirms zero real imports of any guarded file remain.
+4. Re-ran the full node --check sweep + duplicate-declaration check +
+   import-resolution audit project-wide after this fix, since it
+   touched server.js itself (the most foundational file in the custom-
+   server chain) — all clean.
+
+STATUS: fixed, comprehensively audited (not just the one reported file),
+corrected zip re-delivered.
+
+---
+
+## POST-DELIVERY BUG REPORT #3 (user got past boot, hit a page)
+
+Error: `TypeError: Axios.get is not a function` on the Live Agent
+Monitor page.
+
+**Root cause:** `src/lib/axios.js` exports a plain FUNCTION taking a
+config object — `Axios({ url, method, ... })` — NOT a standard axios
+instance with `.get/.post/.put` convenience methods. This is
+intentional and explained in the file's own (accurate) comment: every
+pre-existing call site in this app already used the config-object form.
+I assumed the more common standard-axios-instance shape without
+actually checking this file first — the same class of mistake as the
+`totalAmt` field-name guess in Phase 10c, just in a new spot. Every one
+of my 9 new files (AgentStatusToggle, OrderTimeline, useSipClient, and
+6 new pages) called `.get/.post/.put` directly and would have hit this
+identical crash the moment a user reached any of them.
+
+**Fix:** added `.get/.post/.put/.delete/.patch` as plain properties on
+the exported `Axios` function (functions are objects — this needed no
+restructuring), each routing through the exact same internal `Axios()`
+call so the auth-refresh, retry-on-502/503/504, and Demo Admin
+interceptor logic apply identically either way. Verified first, not
+assumed: grepped the entire existing app for any `.get/.post` usage
+outside my module — genuinely zero, confirming the file's own comment
+and that this addition is safe. Zero changes needed to any of the 9
+call-site files — they all already used standard axios calling
+convention, which now actually works.
+
+**Then proactively re-verified, rather than wait for the next one-at-a-
+time report:** checked `displayPrice` and `axiosToastError` (the only
+two other `@/lib/*` utilities used anywhere across the whole module)
+against their real implementations — both confirmed correct as used
+(displayPrice's extra params all have safe defaults; axiosToastError's
+expected error shape matches exactly what every CRM controller actually
+returns). Grepped for every unique `@/lib/*` / `@/components/*` import
+across the entire module — only those 3 total, all now verified.
+
+VERIFICATION METHOD NOTE: this class of bug (assuming a shared
+in-house utility's calling convention rather than reading it) is
+different from the syntax-error classes caught earlier — no automated
+check catches "this function doesn't have the shape I assumed" short of
+either reading the source or executing it. Going forward for this
+project: before using ANY shared `@/lib/*` utility for the first time in
+new code, read its actual export/signature first, the same discipline
+already applied to model field names since the totalAmt incident —
+extending that same rule to utility functions, not just schema fields.
+
+STATUS: fixed, verified via node --check + jsx syntax check, corrected
+zip re-delivered.
+
+---
+
+## POST-DELIVERY BUG REPORT #4 (3 separate issues in one message)
+
+### Issue A: webpack build error - Can't resolve 'bufferutil'/'utf-8-validate'
+Import trace showed: route.js -> agentStatus.controller.js ->
+agentPresenceService.js -> (dynamic import) ariClient.js -> ari-client
+-> ws -> ws's OPTIONAL native addons. Root cause: agentPresenceService.js
+is reachable from a REAL Next.js API route (updateMyAgentStatusController),
+which Next's webpack build processes normally — and webpack statically
+analyzes dynamic import() calls too, for code-splitting, so it tried to
+resolve ari-client's entire dependency tree as part of the ordinary app
+build, even though that dynamic import was meant to only ever fire from
+the plain-Node socket context.
+FIX: removed all reference to ariClient.js from agentPresenceService.js
+— it's now a pure DB-update function with zero telephony coupling, safe
+for webpack. Moved the "connect oldest queued waiter via Asterisk" side
+effect into socketServer.js's own AGENT_STATUS_UPDATE handler instead —
+that file is genuinely never processed by Next's webpack (only loaded
+by server.js via plain `node server.js`), so it's the one safe place in
+the whole app to reference telephony code, even dynamically. Verified
+by grepping every remaining ariClient.js reference project-wide — only
+server.js and socketServer.js import it now, both confirmed
+webpack-untouched.
+Cost of this fix: the REST fallback path for agent status (for clients
+that haven't connected the socket yet) no longer auto-bridges a queued
+caller — only the primary socket path does. Documented as a deliberate,
+acceptable tradeoff, not silently dropped.
+
+### Issue B: unauthorized/logged-out visitors saw broken restricted
+pages instead of being redirected
+Root cause: the sidebar already had a `canSee()` check, but it only
+controlled which LINKS were shown — nothing stopped someone from typing
+a restricted URL directly. The page would render, its data fetches
+would 401/403, and the raw "Unauthorized access"/"Permission denied"
+API error messages surfaced as toasts on an otherwise-broken page.
+FIX: dashboard/layout.jsx now matches the current pathname against the
+same ADMIN_CATEGORIES config already used for the sidebar (one source
+of truth, not two), and once the permission-check state has genuinely
+resolved, redirects anyone who can't see that page to "/" with a
+generic "Page not found" message — deliberately generic rather than
+"Unauthorized", so a logged-out/under-privileged visitor doesn't get
+confirmation that a restricted route even exists.
+REAL BUG CAUGHT WHILE BUILDING THIS, before it shipped: the natural
+signal for "has the permission check resolved" is permissionsSlice's
+`loaded` flag — but `clearPermissions()` (fired on logout, idle-timeout,
+or a FAILED initial auth check) set `loaded: false`, indistinguishable
+from "hasn't checked yet". A logged-out visitor would have been stuck on
+this guard's "Loading…" placeholder forever, never actually redirected
+— a different, still-broken experience than what was reported. Caught
+by tracing the actual boot sequence (GlobalProvider.jsx) rather than
+assuming the flag meant what its name suggested. Fixed by grepping
+every consumer of `permissions.loaded` first (confirmed nothing else in
+the app reads it — my own new code was the only consumer), then
+changing clearPermissions() to set `loaded: true` (meaning "the check
+resolved", not "valid permissions were found") — role:""/permissions:{}
+already correctly evaluate as "deny" everywhere that matters.
+
+### Issue C: assigning "Call Center Agent" to an existing user via the
+admin-users role dropdown → "Role not found"
+Root cause: CALL_CENTER_AGENT was never in ensureSystemRoles()'s
+`defaults` array — it only ever got created on-demand by
+callCenterAgent.controller.js's OWN ensureAgentRole(), the first time
+anyone used the dedicated "create call center agent" flow. The generic
+assignUserRoleController's self-heal (calls ensureSystemRoles() first)
+never created it, so RoleModel.findOne({name:"CALL_CENTER_AGENT"}) kept
+404ing on any install where nobody had used that dedicated flow yet —
+even though the dropdown itself already listed it as a selectable
+option (admin-users/page.jsx's ROLES array already included it).
+FIX: added CALL_CENTER_AGENT to the defaults array, same label/
+description/core permission grant ensureAgentRole() already creates
+(functionally equivalent permissions shape, spread through EMPTY_PERMS()
+for consistency with every other entry in the array — not byte-
+identical to ensureAgentRole()'s sparser object, but evaluates
+identically everywhere permissions get checked). ensureAgentRole()'s own
+`if (!role)` guard means whichever path runs first is fine — no conflict
+either way.
+SECOND PART OF THIS REPORT — NOT ACTED ON, DELIBERATELY: "without user
+every other roles should appear in employee list" is genuinely ambiguous.
+Investigated the HR/employee creation form (hr-payroll/page.jsx) and
+found CALL_CENTER_AGENT is ALSO deliberately excluded from its
+PROVISIONABLE_ROLES list, with an explicit prior-session comment
+explaining why: agents need sipUsername/sipPassword generation +
+isCallCenterAgent:true, which this generic form's submission logic
+doesn't do — adding the role to this dropdown WITHOUT also wiring up
+that logic would create a WORSE bug (a "Call Center Agent" with
+dashboard access but a permanently broken softphone, since every
+telephony code path resolves "the agent" via
+isCallCenterAgent:true). Rather than guess which of several possible
+readings was meant and risk removing an intentional safeguard, asked
+the user to clarify in the response instead of shipping a speculative
+change to code that was deliberately built this way for a stated reason.
+
+VERIFIED: node --check on all touched .js files, jsx syntax check on
+layout.jsx, 113 imports across 40 files resolve, all 5 original bugs +
+every prior fix re-confirmed intact.
+
+---
+
+## Follow-up on Issue C's second part (user gave no preference, proceeded
+## with best-supported interpretation)
+
+Extended CALL_CENTER_AGENT support to the general employee-creation form
+(hr-payroll/page.jsx + hrPayroll.controller.js's
+createEmployeeWithLoginController), rather than leave it excluded there.
+Added to PROVISIONABLE_ROLES on both client and server. Critically, also
+added the SIP credential generation + isCallCenterAgent:true that was
+the ACTUAL reason this was excluded before (confirmed via the prior
+session's own comment) — an agent created from this form now ends up in
+an identical, fully-working state to one created via the dedicated
+Customer Care flow, using the exact same crypto.randomBytes generation
+pattern, rather than a second, lesser duplicate that would have dashboard
+access but a permanently broken softphone. No additional "reveal SIP
+credentials" UI needed — the softphone fetches them automatically per-
+agent via GET /api/callcenter/telephony/credentials using the agent's
+own session, never manually transcribed the way a login password is.
+
+VERIFIED: node --check on both touched files, jsx syntax check on the
+page, full project re-verification of every fix across this entire
+conversation (all 5 original bugs + all 4 post-delivery fixes) all still
+intact.

@@ -88,6 +88,15 @@ export const createCallCenterAgentController = async (req, res) => {
       userId = newUser._id;
     }
 
+    // Call Center CRM module (Session 2): every call-center agent needs
+    // PJSIP credentials for their WebRTC softphone, separate from their
+    // site login above. Generated the same way as tempPassword just
+    // above (crypto.randomBytes, not Math.random) — see the security
+    // note on employee.model.js's sipPassword field re: encryption at
+    // rest for production.
+    const sipUsername = `agent-${crypto.randomBytes(4).toString("hex")}`;
+    const sipPassword = crypto.randomBytes(12).toString("base64url");
+
     const employee = await new EmployeeModel({
       name: name.trim(),
       email: email?.trim() || "",
@@ -96,6 +105,8 @@ export const createCallCenterAgentController = async (req, res) => {
       department: "Customer Care",
       isCallCenterAgent: true,
       userId,
+      sipUsername,
+      sipPassword,
     }).save();
 
     return res.status(201).json({

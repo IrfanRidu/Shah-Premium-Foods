@@ -165,12 +165,22 @@ function buildDedupKey(config) {
   }
 }
 
-// The exported wrapper. Every existing call site does `Axios({ ...api.x })`
-// — a plain function call with a config object — and nothing in the
-// codebase calls convenience methods like `Axios.get(...)` or reaches for
-// `Axios.interceptors` from outside this file (confirmed by grep before
-// making this change), so replacing the exported value with a plain
-// wrapper function is a fully compatible, non-breaking change.
+// The exported wrapper. Every PRE-EXISTING call site does
+// `Axios({ ...api.x })` — a plain function call with a config object —
+// and nothing outside this file called convenience methods like
+// `Axios.get(...)` (confirmed by grep before this change existed).
+//
+// Call Center CRM module (Session 2) addition: `.get/.post/.put/.delete/
+// .patch` convenience methods, in the standard axios shape
+// (`Axios.get(url, config)`, `Axios.post(url, data, config)`), added as
+// plain properties on this same function — a JS function is also an
+// object, so this doesn't require wrapping or replacing anything. Every
+// one of these routes through the exact same `Axios(config)` call below,
+// so the interceptors above (auth refresh, retry-on-502/503/504, Demo
+// Admin detection) and the request-dedup logic apply identically
+// whether a call site uses the config-object form or these methods —
+// genuinely additive, zero change to any pre-existing call site's
+// behavior.
 function Axios(config = {}) {
   const url = config.url || "";
   if (!DEDUPABLE_PATHS.has(url)) {
@@ -188,5 +198,11 @@ function Axios(config = {}) {
   inFlightRequests.set(key, promise);
   return promise;
 }
+
+Axios.get    = (url, config = {}) => Axios({ ...config, url, method: "GET" });
+Axios.delete = (url, config = {}) => Axios({ ...config, url, method: "DELETE" });
+Axios.post   = (url, data, config = {}) => Axios({ ...config, url, data, method: "POST" });
+Axios.put    = (url, data, config = {}) => Axios({ ...config, url, data, method: "PUT" });
+Axios.patch  = (url, data, config = {}) => Axios({ ...config, url, data, method: "PATCH" });
 
 export default Axios;

@@ -74,12 +74,17 @@ export const createEmployeeController = async (req, res) => {
 // Admin may ever hand-author a brand new permission combination (that
 // stays confined to the Roles & Staff page) — this endpoint can only ever
 // attach one of these pre-existing, already-permission-scoped roles to a
-// new login, never invent one. CALL_CENTER_AGENT is deliberately excluded
-// here — it already has its own dedicated, polished provisioning flow
-// (see callCenterAgent.controller.js / the Customer Care page); adding a
-// second way to create the exact same role would just create confusion
-// about which one to use.
-const PROVISIONABLE_ROLES = new Set(["HR", "MANAGER", "STAFF", "ANALYST"]);
+// new login, never invent one.
+//
+// CALL_CENTER_AGENT (Session 2): now supported here too, not just via
+// the dedicated Customer Care page flow — the two provisioning paths
+// were creating a real gap otherwise (this form's dropdown either had
+// to hide the role entirely, or offer it without the SIP credentials
+// that make it actually work). See the isCallCenterAgent/sipUsername/
+// sipPassword handling below, mirroring callCenterAgent.controller.js's
+// ensureAgentRole()+creation flow exactly rather than duplicating a
+// second, divergent implementation of the same thing.
+const PROVISIONABLE_ROLES = new Set(["HR", "MANAGER", "STAFF", "ANALYST", "CALL_CENTER_AGENT"]);
 
 export const createEmployeeWithLoginController = async (req, res) => {
   try {
@@ -128,6 +133,19 @@ export const createEmployeeWithLoginController = async (req, res) => {
       createdBy: req.userId,
     }).save();
 
+    // Call Center CRM module (Session 2): an agent needs PJSIP
+    // credentials + isCallCenterAgent:true for the softphone and every
+    // telephony code path (which all resolve "the agent" via
+    // isCallCenterAgent:true — see agentPresenceService.js) to work at
+    // all. Same crypto.randomBytes generation as
+    // callCenterAgent.controller.js's own createCallCenterAgentController,
+    // so an agent provisioned from either form ends up in an identical,
+    // fully-working state — not a second, lesser version.
+    const isAgent = roleName === "CALL_CENTER_AGENT";
+    const agentFields = isAgent
+      ? { isCallCenterAgent: true, sipUsername: `agent-${crypto.randomBytes(4).toString("hex")}`, sipPassword: crypto.randomBytes(12).toString("base64url") }
+      : {};
+
     const employee = await new EmployeeModel({
       ...pickEmployeeFields(rest),
       name: name.trim(),
@@ -136,6 +154,7 @@ export const createEmployeeWithLoginController = async (req, res) => {
       designation: designation || roleName,
       department: department || "Staff",
       userId: newUser._id,
+      ...agentFields,
     }).save();
 
     return res.status(201).json({

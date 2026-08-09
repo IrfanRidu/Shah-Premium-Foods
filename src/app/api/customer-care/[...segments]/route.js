@@ -1,6 +1,6 @@
 import { createNextHandler } from "@/lib/apiHandler";
 import auth, { optionalAuth } from "@/server/middlewares/auth";
-import { checkPermission } from "@/server/middlewares/permission";
+import { checkPermission, superAdminOnly } from "@/server/middlewares/permission";
 import {
   listTicketsController,
   createTicketController,
@@ -37,10 +37,18 @@ const ROUTES = {
   "PUT:/orders/status": [[auth, checkPermission("customerCare", "edit")], updateOrderStatusController],
   // Call center agents — managed from within the Customer Care page, so
   // gated the same way as the rest of this page rather than under hrPayroll.
+  // Session 2: create/update/delete tightened to superAdminOnly — the CRM
+  // spec is explicit ("Only Super Admin can: Create agents, Delete agents,
+  // Suspend agents"). Previously these three used checkPermission
+  // ("customerCare","edit"), which a CALL_CENTER_AGENT technically also
+  // passes (their role grants exactly that permission) even though the UI
+  // never exposed these actions to them — this closes that gap for real
+  // rather than relying on the UI alone. Listing stays at customerCare
+  // view: seeing the roster isn't one of the restricted actions.
   "GET:/agents":        [[auth, checkPermission("customerCare", "view")], listCallCenterAgentsController],
-  "POST:/agents":       [[auth, checkPermission("customerCare", "edit")], createCallCenterAgentController],
-  "PUT:/agents":        [[auth, checkPermission("customerCare", "edit")], updateCallCenterAgentController],
-  "DELETE:/agents":     [[auth, checkPermission("customerCare", "edit")], deleteCallCenterAgentController],
+  "POST:/agents":       [[auth, superAdminOnly], createCallCenterAgentController],
+  "PUT:/agents":        [[auth, superAdminOnly], updateCallCenterAgentController],
+  "DELETE:/agents":     [[auth, superAdminOnly], deleteCallCenterAgentController],
   // Fix 12: call logging — initiate/outcome are usable by any agent with
   // customerCare access; the aggregated history view is scoped to
   // analytics permission (super admin by default) since it's cross-agent

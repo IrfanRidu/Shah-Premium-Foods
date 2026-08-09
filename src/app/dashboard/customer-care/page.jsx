@@ -10,6 +10,7 @@ import api from "@/lib/api";
 import { displayPrice, axiosToastError, isSuperAdmin } from "@/lib/utils";
 import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
+import WhatsAppButton from "@/modules/callcenter/components/WhatsAppButton";
 
 const ORDER_STATUSES = ["All","Pending","Confirmed","On-Hold","On the way","Delivered","Cancelled","Return","Refunded"];
 const STATUS_COLOR = {
@@ -165,6 +166,11 @@ function OrdersTab() {
                       <FaPhone size={13} />
                     </a>
                   )}
+                  <WhatsAppButton
+                    phone={order.userId?.mobile || order.customerSnapshot?.mobile}
+                    message={`Hi ${order.userId?.name || order.customerSnapshot?.name || ""}, this is Shah Premium Foods regarding your order #${order.orderId}.`}
+                    className="shrink-0"
+                  />
                   {isOpen ? <FaChevronUp className="shrink-0 text-theme-muted" /> : <FaChevronDown className="shrink-0 text-theme-muted" />}
                 </button>
 
@@ -196,6 +202,13 @@ function OrdersTab() {
                           <FaPhone size={11} /> Call Customer
                         </a>
                       )}
+                      <WhatsAppButton
+                        phone={order.userId?.mobile || order.customerSnapshot?.mobile}
+                        message={`Hi ${order.userId?.name || order.customerSnapshot?.name || ""}, this is Shah Premium Foods regarding your order #${order.orderId}.`}
+                        label="WhatsApp"
+                        compact
+                        className={(order.userId?.mobile || order.customerSnapshot?.mobile) ? "" : "ml-auto"}
+                      />
                     </div>
 
                     {/* Products — name, quantity, value */}

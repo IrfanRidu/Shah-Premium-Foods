@@ -401,6 +401,25 @@
     transition: background-color 0.15s ease;
   }
   .icon-btn-call:hover { background-color: #16a34a; }
+  /* Call Center CRM module (Session 2): same shape/size as icon-btn-call,
+     WhatsApp's own brand green so it reads as "WhatsApp" at a glance
+     rather than a second, confusingly-identical call button. */
+  .icon-btn-whatsapp {
+    height: 2.25rem;
+    width: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: #25d366;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease;
+    text-decoration: none;
+  }
+  .icon-btn-whatsapp:hover { background-color: #1da851; }
   .icon-btn-pdf, .icon-btn-info {
     height: 2.25rem;
     width: 2.25rem;

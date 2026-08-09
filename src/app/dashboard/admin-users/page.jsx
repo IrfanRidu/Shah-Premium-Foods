@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { FaPhone, FaDownload, FaSearch, FaFilter } from "react-icons/fa";
+import WhatsAppButton from "@/modules/callcenter/components/WhatsAppButton";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { axiosToastError, displayPrice, displayPriceSimple, hasFullDashboardAccess } from "@/lib/utils";
@@ -146,6 +147,7 @@ export default function AdminUsersPage() {
                         <button onClick={() => call(u.mobile)} title="Call" className="icon-btn-call">
                           <FaPhone size={11}/>
                         </button>
+                        <WhatsAppButton phone={u.mobile} message={`Hi ${u.name || ""}, this is Shah Premium Foods.`} />
                         <button onClick={() => setSelected(u)} className="row-action-btn">View</button>
                       </div>
                     </td>
@@ -180,6 +182,12 @@ export default function AdminUsersPage() {
               <button onClick={() => call(selected.mobile)} className="flex items-center gap-2 flex-1 py-2 bg-green-500 text-white rounded-full text-sm font-semibold justify-center">
                 <FaPhone size={12}/> Call Customer
               </button>
+              <WhatsAppButton
+                phone={selected.mobile}
+                message={`Hi ${selected.name || ""}, this is Shah Premium Foods.`}
+                label="WhatsApp"
+                className="flex-1"
+              />
               <button onClick={() => setSelected(null)} className="btn-outline flex-1 py-2">Close</button>
             </div>
           </div>

@@ -8,9 +8,10 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.js",
+    "dev:next-only": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
     "seed": "node src/server/seed/seed.js",
     "lint": "next lint",
     "analyze": "ANALYZE=true next build"
@@ -19,6 +20,7 @@
     "@reduxjs/toolkit": "^2.12.0",
     "@sentry/nextjs": "^8.42.0",
     "@vercel/otel": "^1.10.0",
+    "ari-client": "^2.2.0",
     "axios": "^1.18.1",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.10.0",
@@ -39,6 +41,9 @@
     "recharts": "^2.15.4",
     "resend": "^4.8.0",
     "server-only": "^0.0.1",
+    "sip.js": "^0.21.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "stripe": "^17.7.0",
     "uuid": "^10.0.0",
     "winston": "^3.15.0",

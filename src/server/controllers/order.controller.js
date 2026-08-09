@@ -12,6 +12,16 @@ import { createNotification } from "./notification.controller.js";
 import SiteSettingsModel from "../models/siteSettings.model.js";
 import ProcessedWebhookEventModel from "../models/processedWebhookEvent.model.js";
 import { evaluateCoupon } from "../utils/couponEligibility.js";
+// Call Center CRM module (Session 2): logs order status changes to the
+// CRM's own field-level change history so a Super Admin can one-click
+// undo them (spec explicitly lists "Order status updates" under the
+// Undo System). This is the one deliberate, minimal coupling point from
+// core order logic into the CRM module — the alternative (a Mongoose
+// pre/post-save hook watching for order_status changes) would be more
+// indirect for the same result. Wrapped in try/catch at the call site
+// below so a problem in the CRM logging layer can never block or break
+// this core, pre-existing order-status update.
+import { logChange } from "../../modules/callcenter/services/crmChangeLogService.js";
 
 
 const generateOrderId = () => `ORD-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -826,6 +836,19 @@ export const updateOrderStatusController = async (req, res) => {
     }
 
     await order.save();
+
+    if (previousStatus !== newStatus) {
+      try {
+        await logChange({
+          entityType: "order", entityId: order._id, action: "status_change",
+          field: "order_status", previousValue: previousStatus, newValue: newStatus,
+          performedBy: req.userId,
+        });
+      } catch {
+        // Never let a CRM change-log hiccup affect the order update itself.
+      }
+    }
+
     const populated = await OrderModel.findById(orderId).populate("delivery_address").populate("userId", "name email mobile");
 
     return res.json({ message: "Order status updated", error: false, success: true, data: populated });

@@ -8,6 +8,7 @@ import { useSelector } from "react-redux";
 import SafeImage from "@/components/SafeImage";
 import toast from "react-hot-toast";
 import dynamic from "next/dynamic";
+import WhatsAppButton from "@/modules/callcenter/components/WhatsAppButton";
 
 const InvoiceModal = dynamic(() => import("@/components/InvoiceModal"), { ssr: false });
 
@@ -229,6 +230,12 @@ export default function AdminOrdersPage() {
                   >
                     <FaPhone size={13} />
                   </button>
+
+                  {/* WhatsApp — Call Center CRM module (Session 2) */}
+                  <WhatsAppButton
+                    phone={order.userId?.mobile || order.customerSnapshot?.mobile}
+                    message={`Hi ${order.userId?.name || order.customerSnapshot?.name || ""}, this is Shah Premium Foods regarding your order ${order.orderId}.`}
+                  />
 
                   {/* Status selector — fixed h-9 (2.25rem) to match icon-btn siblings */}
                   <select

@@ -60,3 +60,16 @@ import "./subcategory.model.js";
 import "./supportTicket.model.js";
 import "./user.model.js";
 import "./wishlist.model.js";
+
+// --- Call Center CRM module (Session 2) ---
+// These live under src/modules/callcenter/models/ per the module's own
+// isolation requirement, not alongside the rest of src/server/models/ —
+// same registration requirement still applies, so they're imported here
+// too, from their real location, rather than moved.
+import "../../modules/callcenter/models/agentStatus.model.js";
+import "../../modules/callcenter/models/assignment.model.js";
+import "../../modules/callcenter/models/callback.model.js";
+import "../../modules/callcenter/models/callRecording.model.js";
+import "../../modules/callcenter/models/crmChangeLog.model.js";
+import "../../modules/callcenter/models/crmSettings.model.js";
+import "../../modules/callcenter/models/queueEntry.model.js";

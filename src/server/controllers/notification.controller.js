@@ -8,9 +8,15 @@ const SUPER_ADMIN_ROLES = ["SUPERADMIN", "ADMIN", "DEMO_ADMIN"];
 // exposed as its own route. Fire-and-forget: never let a notification
 // failure block the actual action (an order must still succeed even if,
 // say, the DB hiccups on this write).
-export async function createNotification({ type, title, message = "", link = "", targetModule = "", relatedId = null }) {
+//
+// Session 2 addition: optional targetUserId, for CRM events meant for
+// exactly one agent (their new order assignment, their callback
+// reminder) rather than the whole targetModule audience. Every existing
+// caller that doesn't pass it behaves exactly as before (null = pure
+// module broadcast, unchanged).
+export async function createNotification({ type, title, message = "", link = "", targetModule = "", relatedId = null, targetUserId = null }) {
   try {
-    await new NotificationModel({ type, title, message, link, targetModule, relatedId }).save();
+    await new NotificationModel({ type, title, message, link, targetModule, relatedId, targetUserId }).save();
   } catch {
     // Deliberately swallowed — see comment above.
   }
@@ -32,10 +38,20 @@ async function allowedModulesFor(req) {
   return Object.entries(perms).filter(([, perm]) => perm?.view).map(([mod]) => mod);
 }
 
+// Shared by list + mark-all-read so the "what can this user see" rule
+// only lives in one place. Session 2 addition: OR's in the user's own
+// targetUserId matches alongside the existing module-broadcast rule — a
+// targeted notification reaches that one user even if their role
+// wouldn't otherwise see that targetModule.
+function buildVisibilityQuery(allowed, userId) {
+  const moduleClause = allowed === null ? { targetModule: { $exists: true } } : { $or: [{ targetModule: "" }, { targetModule: { $in: allowed } }] };
+  return { $or: [moduleClause, { targetUserId: userId }] };
+}
+
 export const listNotificationsController = async (req, res) => {
   try {
     const allowed = await allowedModulesFor(req);
-    const query = allowed === null ? {} : { $or: [{ targetModule: "" }, { targetModule: { $in: allowed } }] };
+    const query = buildVisibilityQuery(allowed, req.userId);
 
     const [notifications, unreadCount] = await Promise.all([
       NotificationModel.find(query).sort({ createdAt: -1 }).limit(30),
@@ -67,7 +83,7 @@ export const markNotificationReadController = async (req, res) => {
 export const markAllNotificationsReadController = async (req, res) => {
   try {
     const allowed = await allowedModulesFor(req);
-    const query = allowed === null ? {} : { $or: [{ targetModule: "" }, { targetModule: { $in: allowed } }] };
+    const query = buildVisibilityQuery(allowed, req.userId);
     await NotificationModel.updateMany({ ...query, readBy: { $ne: req.userId } }, { $addToSet: { readBy: req.userId } });
     return res.json({ success: true, error: false });
   } catch (err) {

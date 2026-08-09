@@ -22,6 +22,19 @@ const employeeSchema = new mongoose.Schema(
     // Their linked userId (if any) is assigned the CALL_CENTER_AGENT role,
     // which is scoped to customerCare-only dashboard access.
     isCallCenterAgent: { type: Boolean, default: false },
+    // Call Center CRM module (Session 2): PJSIP registration credentials
+    // for this agent's WebRTC softphone — deliberately separate from
+    // their site login (userId/password above). sipUsername is stable
+    // and derived from _id at provisioning time; sipPassword is a
+    // generated secret, not something the agent picks. SECURITY NOTE:
+    // stored in plaintext here for now — the agent needs the actual
+    // value back (not just a hash) to register, same constraint a PBX
+    // credential always has. For a real production deployment, encrypt
+    // this at rest (e.g. via a KMS-backed field encryption) rather than
+    // storing it in the clear — flagged here rather than silently
+    // shipped as if it were already hardened.
+    sipUsername: { type: String, default: null },
+    sipPassword: { type: String, default: null },
   },
   { timestamps: true }
 );

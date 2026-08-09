@@ -20,14 +20,17 @@ const TYPES = ["Full-time", "Part-time", "Contract", "Intern"];
 // Must exactly match PROVISIONABLE_ROLES in hrPayroll.controller.js — kept
 // as a fixed, safe list rather than pulling every role from the Roles &
 // Staff page, so this form can never accidentally offer to hand out
-// ADMIN/SUPERADMIN access. Call Center Agent isn't listed here on
-// purpose — it already has its own dedicated flow on the Customer Care
-// page; use that instead of duplicating it here.
+// ADMIN/SUPERADMIN access. Call Center Agent (Session 2): now supported
+// here too — the server side generates SIP credentials + sets
+// isCallCenterAgent automatically when this is selected, same as the
+// dedicated Customer Care page flow, so an agent created from either
+// form ends up fully working, not a lesser duplicate.
 const PROVISIONABLE_ROLES = [
   { value: "HR",      label: "HR" },
   { value: "MANAGER", label: "Manager" },
   { value: "STAFF",   label: "Staff" },
   { value: "ANALYST", label: "Analyst" },
+  { value: "CALL_CENTER_AGENT", label: "Call Center Agent" },
 ];
 
 const emptyForm = {

@@ -4,7 +4,11 @@ const notificationSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["new_order", "new_ticket", "system"],
+      enum: [
+        "new_order", "new_ticket", "system",
+        // Call Center CRM module additions (Session 2):
+        "incoming_call", "missed_call", "callback_reminder", "order_assigned", "queue_alert",
+      ],
       required: true,
     },
     title:   { type: String, required: true },
@@ -16,6 +20,13 @@ const notificationSchema = new mongoose.Schema(
     // that module (or a super admin) sees it, mirroring the existing
     // permission system instead of building a parallel one.
     targetModule: { type: String, default: "" }, // e.g. "orders", "customerCare" — "" = every admin
+    // Session 2 addition: some CRM events are for exactly one agent (their
+    // new assignment, their callback reminder), not the whole customerCare
+    // audience. When set, this notification is ALSO visible to this one
+    // user regardless of their module permissions, in addition to (not
+    // instead of) the targetModule broadcast rule above. null preserves
+    // the original broadcast-only behavior exactly.
+    targetUserId: { type: mongoose.Schema.ObjectId, ref: "user", default: null, index: true },
     relatedId: { type: mongoose.Schema.ObjectId, default: null }, // order/ticket _id, for reference
     // Read state is tracked per-user (an order notification is "unread" for
     // an agent who hasn't opened it yet, even after another agent has).
