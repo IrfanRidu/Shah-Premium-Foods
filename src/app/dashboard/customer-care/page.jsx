@@ -783,6 +783,21 @@ export default function CustomerCarePage() {
   // anyone explicitly granted analytics view, not to a restricted
   // customerCare-only call center agent.
   const canSeeCallHistory = isSuperAdmin(user.role) || (user.role === "ADMIN" && !permissions?.analytics) || !!permissions?.analytics?.view;
+  // BUG FIX: the "Call Center" tab below is agent MANAGEMENT (roster +
+  // Add/Edit/Delete Agent) — spec is explicit this is "Only Super Admin
+  // can: Create agents, Delete agents, Suspend agents, Assign call center
+  // agents." This tab previously rendered for ANYONE who could open this
+  // page at all (any role with customerCare permission, including a plain
+  // CALL_CENTER_AGENT — and even a legacy ADMIN, since ADMIN's default
+  // FULL_PERMS also includes customerCare), regardless of role — the Add/
+  // Edit/Delete buttons were fully visible and clickable, even though the
+  // underlying API already correctly rejected the mutation with a 403.
+  // Strict isSuperAdmin (not hasFullDashboardAccess) to match this exact
+  // module's own precedent for "Only Super Admin can" spec items — see
+  // dashboard/layout.jsx's strictSuperAdminOnly links (Live Agent Monitor,
+  // CRM Reports, CRM Change History, Routing & Queue Settings), which are
+  // deliberately hidden from Demo Admin too, not just simulated.
+  const canManageAgents = isSuperAdmin(user.role);
 
   return (
     <div>
@@ -800,10 +815,12 @@ export default function CustomerCarePage() {
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors shrink-0 ${tab === "tickets" ? "border-theme-primary text-theme-primary" : "border-transparent text-theme-muted hover:text-theme"}`}>
           <FaTicketAlt size={13} /> Support Tickets
         </button>
-        <button onClick={() => setTab("callcenter")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors shrink-0 ${tab === "callcenter" ? "border-theme-primary text-theme-primary" : "border-transparent text-theme-muted hover:text-theme"}`}>
-          <FaUserPlus size={13} /> Call Center
-        </button>
+        {canManageAgents && (
+          <button onClick={() => setTab("callcenter")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors shrink-0 ${tab === "callcenter" ? "border-theme-primary text-theme-primary" : "border-transparent text-theme-muted hover:text-theme"}`}>
+            <FaUserPlus size={13} /> Call Center
+          </button>
+        )}
         {canSeeCallHistory && (
           <button onClick={() => setTab("callhistory")}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors shrink-0 ${tab === "callhistory" ? "border-theme-primary text-theme-primary" : "border-transparent text-theme-muted hover:text-theme"}`}>
@@ -814,8 +831,9 @@ export default function CustomerCarePage() {
 
       {tab === "orders" ? <OrdersTab />
         : tab === "tickets" ? <TicketsTab />
-        : tab === "callcenter" ? <CallCenterTab />
-        : <CallHistoryTab />}
+        : tab === "callcenter" && canManageAgents ? <CallCenterTab />
+        : tab === "callhistory" && canSeeCallHistory ? <CallHistoryTab />
+        : <OrdersTab />}
     </div>
   );
 }

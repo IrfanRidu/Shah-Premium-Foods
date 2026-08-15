@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import {
   FaUser, FaBox, FaCog, FaStore, FaClipboardList,
   FaUsers, FaUpload, FaBolt, FaTag, FaWarehouse, FaChartLine, FaUserShield,
-  FaTruck, FaFileAlt, FaHeadset, FaUserTie, FaHistory, FaHeart,
+  FaTruck, FaFileAlt, FaHeadset, FaUserTie, FaHistory, FaHeart, FaClock,
   FaTachometerAlt, FaChevronDown, FaFlask,
 } from "react-icons/fa";
 import { isSuperAdmin, hasFullDashboardAccess } from "@/lib/utils";
@@ -26,6 +26,14 @@ const USER_LINKS = [
   { href: "/dashboard/myorders", label: "My Orders",   icon: FaBox },
   { href: "/dashboard/submit-list", label: "Submit Shopping List", icon: FaFileAlt },
   { href: "/dashboard/wishlist", label: "Wishlist",    icon: FaHeart },
+  // Phase E (Biometric Attendance) — reachable by everyone regardless of
+  // role (like every other USER_LINK), not gated by hrPayroll
+  // permission, since this is someone marking THEIR OWN attendance. The
+  // page itself handles the common case of an account with no linked
+  // Employee record (most accounts on an e-commerce site are customers,
+  // not staff) with a plain "not applicable" message rather than this
+  // link needing its own boot-time visibility check.
+  { href: "/dashboard/my-attendance", label: "My Attendance", icon: FaClock },
 ];
 
 // The flat 17-link admin list used to just dump everything one after
@@ -84,6 +92,12 @@ const ADMIN_CATEGORIES = [
     title: "HR and Payroll",
     links: [
       { href: "/dashboard/hr-payroll", label: "HR & Payroll", icon: FaUserTie, module: "hrPayroll", action: "view" },
+      // Phase E (Biometric Attendance) — a device's API key is a real
+      // credential, not day-to-day CRUD a Demo Admin tour benefits from
+      // simulating, same reasoning as Audit Log directly below and this
+      // module's own Tax & Deduction Rules — genuinely hidden from Demo
+      // Admin too, not just shown and simulated.
+      { href: "/dashboard/biometric-devices", label: "Biometric Devices", icon: FaTachometerAlt, strictSuperAdminOnly: true },
     ],
   },
   {

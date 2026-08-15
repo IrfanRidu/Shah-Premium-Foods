@@ -43,9 +43,20 @@ const ROUTES = {
   // ("customerCare","edit"), which a CALL_CENTER_AGENT technically also
   // passes (their role grants exactly that permission) even though the UI
   // never exposed these actions to them — this closes that gap for real
-  // rather than relying on the UI alone. Listing stays at customerCare
-  // view: seeing the roster isn't one of the restricted actions.
-  "GET:/agents":        [[auth, checkPermission("customerCare", "view")], listCallCenterAgentsController],
+  // rather than relying on the UI alone.
+  // Session 3 bug report ("call center agent can access admin/super admin
+  // dashboard"): listing was left at customerCare.view on the theory that
+  // "seeing the roster isn't one of the restricted actions" — but the
+  // frontend's Call Center tab (customer-care/page.jsx) rendered the full
+  // roster (name/email/phone/status) together with the Add/Edit/Delete
+  // Agent controls as ONE unit with no role check on the tab itself, so in
+  // practice any customerCare-permission holder — a plain CALL_CENTER_AGENT,
+  // or even a legacy ADMIN — saw the whole management panel. The tab is now
+  // hidden from non-Super-Admins there; tightened here too so a direct API
+  // call can't still pull the roster (coworkers' contact info) after the UI
+  // fix. Nothing else in the app calls this endpoint (verified — grep for
+  // getCallCenterAgents finds exactly one call site, the now-gated tab).
+  "GET:/agents":        [[auth, superAdminOnly], listCallCenterAgentsController],
   "POST:/agents":       [[auth, superAdminOnly], createCallCenterAgentController],
   "PUT:/agents":        [[auth, superAdminOnly], updateCallCenterAgentController],
   "DELETE:/agents":     [[auth, superAdminOnly], deleteCallCenterAgentController],

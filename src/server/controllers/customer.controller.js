@@ -76,7 +76,12 @@ export const getCustomersController = async (req, res) => {
 export const getCustomerDetailController = async (req, res) => {
   try {
     const { id } = req.params;
-    const customer = await UserModel.findById(id).select("-password -sessions -forgot_password_otp -forgot_password_expiry").populate("address_details");
+    // Scoped to role:"USER" — same filter the list/export endpoints in
+    // this file already use. Without this, findById(id) alone would return
+    // ANY account regardless of role, meaning a guessed/enumerated ObjectId
+    // for an admin/staff/superadmin user could be fetched through what's
+    // supposed to be a read-only "view this customer" detail endpoint.
+    const customer = await UserModel.findOne({ _id: id, role: "USER" }).select("-password -sessions -forgot_password_otp -forgot_password_expiry").populate("address_details");
     if (!customer) return res.status(404).json({ success: false, error: true, message: "Customer not found" });
 
     const safeCustomer = maskFieldsForDemo(req.userRole, customer, CUSTOMER_PII_MASKERS);

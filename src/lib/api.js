@@ -163,6 +163,22 @@ const api = {
   deleteEmployee:        { url: "/api/hr-payroll/employees",     method: "delete"},
   getPayroll:            { url: "/api/hr-payroll/payroll",       method: "get"  },
   savePayroll:           { url: "/api/hr-payroll/payroll",       method: "post" },
+  getPayrollConfig:      { url: "/api/hr-payroll/payroll-config", method: "get" },
+  updatePayrollConfig:   { url: "/api/hr-payroll/payroll-config", method: "put" },
+  getEmployeeFile:       { url: "/api/hr-payroll/employee-file",  method: "get" },
+  addEmployeeEvent:      { url: "/api/hr-payroll/employee-events", method: "post" },
+  deleteEmployeeEvent:   { url: "/api/hr-payroll/employee-events", method: "delete" },
+  getDocumentTemplates:      { url: "/api/hr-payroll/templates",                method: "get"    },
+  uploadDocumentTemplate:    { url: "/api/hr-payroll/templates",                method: "post"   },
+  deleteDocumentTemplate:    { url: "/api/hr-payroll/templates",                method: "delete" },
+  generateDocument:          { url: "/api/hr-payroll/generate-document",       method: "post"   },
+  getGeneratedDocuments:     { url: "/api/hr-payroll/generated-documents",     method: "get"    },
+  downloadGeneratedDocument: { url: "/api/hr-payroll/generated-document-download", method: "get" },
+  uploadEmployeeDocument:    { url: "/api/hr-payroll/employee-documents",           method: "post"   },
+  getEmployeeDocuments:      { url: "/api/hr-payroll/employee-documents",           method: "get"    },
+  deleteEmployeeDocument:    { url: "/api/hr-payroll/employee-documents",           method: "delete" },
+  downloadEmployeeDocument:  { url: "/api/hr-payroll/employee-document-download",   method: "get"    },
+  reviewEmployeeDocument:    { url: "/api/hr-payroll/employee-document-review",     method: "post"   },
   // Fix 34: Analytics settings (dependencies / key values)
   getAnalyticsSettings:  { url: "/api/analytics/settings",       method: "get"  },
   updateAnalyticsSettings:{ url: "/api/analytics/settings",      method: "put"  },
@@ -183,6 +199,19 @@ const api = {
   googleAuth:            { url: "/api/user/google-auth",         method: "post" },
   // Section 13 (Admin Panel Security)
   getAuditLogs:          { url: "/api/audit-log/list",           method: "get"  },
+  // Phase E (Biometric Attendance)
+  checkIn:               { url: "/api/attendance/checkin",             method: "post"   },
+  checkOut:               { url: "/api/attendance/checkout",            method: "post"   },
+  getMyAttendance:        { url: "/api/attendance/my-attendance",       method: "get"    },
+  verifyFace:              { url: "/api/attendance/verify-face",         method: "post"   },
+  getAttendanceOverview:  { url: "/api/attendance/overview",            method: "get"    },
+  overrideAttendance:     { url: "/api/attendance/override",            method: "post"   },
+  getAttendanceHistory:   { url: "/api/attendance/history",             method: "get"    },
+  enrollFace:              { url: "/api/attendance/enroll-face",         method: "post"   },
+  enrollFingerprint:       { url: "/api/attendance/enroll-fingerprint",  method: "post"   },
+  getBiometricDevices:     { url: "/api/attendance/devices",             method: "get"    },
+  registerBiometricDevice: { url: "/api/attendance/devices",             method: "post"   },
+  deleteBiometricDevice:   { url: "/api/attendance/devices",             method: "delete" },
 };
 
 export default api;

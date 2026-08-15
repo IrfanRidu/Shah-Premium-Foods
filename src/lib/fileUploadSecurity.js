@@ -71,6 +71,80 @@ export function validateUploadedFile(file) {
   return { valid: true, detectedMime: match.mime };
 }
 
+// Phase C (Advanced HRMS Features — Dynamic Document Generation): the
+// first non-image upload this app has ever needed (the comment at the
+// top of this file was accurate when written — "every file input... is
+// image/*" — and is exactly why this is a NEW function rather than a
+// weakened version of validateUploadedFile above). Same allowlist-by-
+// magic-bytes philosophy, applied to the one new format Phase C needs:
+// .docx, which is a ZIP archive internally (signature "PK\x03\x04").
+// apiHandler.js routes each upload to the correct one of these two
+// functions based on which route it hit (see DOCUMENT_UPLOAD_ROUTES
+// there) — a route expecting a company HR template has no legitimate
+// reason to also silently accept an image upload, or vice versa.
+export const MAX_DOCUMENT_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB — a few embedded logos inside a real .docx template add up fast
+
+const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04]; // "PK\x03\x04" — .docx/.xlsx/.pptx are all ZIP archives internally
+
+/**
+ * @returns {{ valid: true, detectedMime: string } | { valid: false, reason: string }}
+ */
+export function validateUploadedDocument(file) {
+  if (!file || !file.buffer) {
+    return { valid: false, reason: "No file received." };
+  }
+  if (file.size > MAX_DOCUMENT_UPLOAD_SIZE) {
+    return { valid: false, reason: `File is too large. Maximum size is ${MAX_DOCUMENT_UPLOAD_SIZE / (1024 * 1024)}MB.` };
+  }
+  if (file.size === 0) {
+    return { valid: false, reason: "File is empty." };
+  }
+  const buf = file.buffer;
+  const isZip = buf.length >= ZIP_MAGIC.length && ZIP_MAGIC.every((b, i) => buf[i] === b);
+  if (!isZip) {
+    return { valid: false, reason: "This doesn't look like a valid .docx file." };
+  }
+  // Magic bytes alone only prove "this is some ZIP archive" (a plain
+  // .zip has the same signature) — the extension check below narrows
+  // that to "specifically claims to be a Word document," same belt-
+  // and-suspenders spirit as the MIME-type check above (not the sole
+  // gate, but catches an obviously-wrong upload with a clearer message
+  // than a downstream template-parse failure would).
+  if (!/\.docx$/i.test(file.originalname || "")) {
+    return { valid: false, reason: "Please upload a .docx file (Word document — .doc, .pdf, and other formats aren't supported as templates)." };
+  }
+  return { valid: true, detectedMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+}
+
+// Phase D (Smart Document Processing): employee ID/certificate uploads
+// (passport photos, National ID scans, certificates) — unlike Phase C's
+// templates, which must specifically be .docx, these can legitimately
+// be EITHER a photo (JPG/PNG, the common case — someone photographs
+// their passport) OR a PDF scan. Reuses validateUploadedFile's own
+// image allowlist internally rather than duplicating that magic-byte
+// list a second time, so there's exactly one place it's maintained.
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46]; // "%PDF"
+
+export function validateUploadedEmployeeDocument(file) {
+  if (!file || !file.buffer) {
+    return { valid: false, reason: "No file received." };
+  }
+  if (file.size > MAX_DOCUMENT_UPLOAD_SIZE) {
+    return { valid: false, reason: `File is too large. Maximum size is ${MAX_DOCUMENT_UPLOAD_SIZE / (1024 * 1024)}MB.` };
+  }
+  if (file.size === 0) {
+    return { valid: false, reason: "File is empty." };
+  }
+  const buf = file.buffer;
+  const isPdf = buf.length >= PDF_MAGIC.length && PDF_MAGIC.every((b, i) => buf[i] === b);
+  if (isPdf) {
+    return { valid: true, detectedMime: "application/pdf" };
+  }
+  const imageResult = validateUploadedFile(file);
+  if (imageResult.valid) return imageResult;
+  return { valid: false, reason: "Please upload a photo (JPG/PNG) or a PDF scan of the document." };
+}
+
 // Virus scan placeholder — Section 6 explicitly asked for this even though
 // a real scanner can't run inside this sandbox/most Next.js hosting
 // environments without a separate service. This is a genuine integration

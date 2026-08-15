@@ -259,6 +259,26 @@ async function completeLogin(user, req, res) {
     { last_login_date: new Date() }
   );
 
+  // Advanced HRMS Features spec: "Browser Login" is one of the
+  // attendance methods in its own right. Awaited (not fire-and-forget)
+  // so this completes reliably regardless of deployment mode — this app
+  // documents both a persistent-VPS path (server.js, required for
+  // Socket.IO anyway) and a Vercel serverless path, and an unawaited
+  // background call can be killed mid-flight the moment a serverless
+  // function returns its response. Wrapped in its own try/catch here
+  // (not just relying on autoMarkFromBrowserLogin's internal one) —
+  // that function only catches errors during its own execution; if the
+  // dynamic import itself fails (module missing, a syntax error deep in
+  // its dependency chain), that would otherwise propagate up through
+  // this function with no try/catch of its own and fail the ENTIRE
+  // login. This must never be the reason someone can't sign in.
+  try {
+    const { autoMarkFromBrowserLogin } = await import("../services/attendanceService.js");
+    await autoMarkFromBrowserLogin(user._id);
+  } catch (err) {
+    console.error("[completeLogin] attendance auto-check-in failed (non-fatal):", err.message);
+  }
+
   res.cookie("accessToken", accessToken, cookieOptions);
   res.cookie("refreshToken", refreshToken, cookieOptions);
 
@@ -465,6 +485,17 @@ export const logoutUserController = async (req, res) => {
 
     res.clearCookie("accessToken", cookieOptions);
     res.clearCookie("refreshToken", cookieOptions);
+
+    // Advanced HRMS Features spec: "Browser Logout" attendance method —
+    // same reasoning/robustness as completeLogin's check-in hook above
+    // (own try/catch, not just relying on the service function's
+    // internal one; awaited, not fire-and-forget).
+    try {
+      const { autoMarkFromBrowserLogout } = await import("../services/attendanceService.js");
+      await autoMarkFromBrowserLogout(userId);
+    } catch (err) {
+      console.error("[logoutUserController] attendance auto-check-out failed (non-fatal):", err.message);
+    }
 
     // Security audit: only revoke THIS device's session, not every
     // session on the account — logging out on one device shouldn't sign

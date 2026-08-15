@@ -18,7 +18,7 @@ import {
   AUTH_RATE_LIMITS,
   DEFAULT_RATE_LIMIT,
 } from "@/lib/security";
-import { validateUploadedFile, scanFileForViruses } from "@/lib/fileUploadSecurity";
+import { validateUploadedFile, validateUploadedDocument, validateUploadedEmployeeDocument, scanFileForViruses } from "@/lib/fileUploadSecurity";
 import {
   generateRequestId,
   resolveCorrelationId,
@@ -44,6 +44,26 @@ function parseCookies(cookieHeader) {
 }
 
 // ── Build a mock Express-like request from a Next.js Request ──────────────
+// Phase C/D (Advanced HRMS Features): the only routes where an upload is
+// legitimately NOT a plain image — everything else in this app uploads
+// images (see fileUploadSecurity.js's own header comment, written before
+// either of these routes existed). Maps a routeKey straight to the
+// validator function that route's upload should use, rather than a
+// boolean + ternary — Phase C only ever needed one alternate case
+// (docx-only templates), but Phase D added a second, genuinely different
+// one (employee ID/certificate uploads, which can legitimately be EITHER
+// an image OR a PDF) — a growing if/else chain doesn't scale as cleanly
+// as this does to a plausible future 4th/5th case. Keyed by the same
+// `${method}:${pathname}` shape as handleRequest's routeKey below, so
+// there's exactly one place either of us could get it wrong, not two
+// independently-maintained formats. Any route not listed here keeps
+// using validateUploadedFile (images only) — the original, unchanged
+// default for the rest of the app.
+const UPLOAD_VALIDATORS = new Map([
+  ["POST:/api/hr-payroll/templates", validateUploadedDocument],
+  ["POST:/api/hr-payroll/employee-documents", validateUploadedEmployeeDocument],
+]);
+
 // Section 11 (Logging) — `sharedContext` is a plain object created by
 // createNextHandler BEFORE any of this runs, and the mock request is built
 // ON TOP OF it (Object.assign onto the same reference) rather than as a
@@ -55,9 +75,10 @@ function parseCookies(cookieHeader) {
 // of handleRequest's own return value at any of its several early-return
 // points (CSRF rejection, rate limit, DB failure, no route, file error,
 // middleware-chain-stop) — none of those needed to change at all.
-async function buildMockRequest(nextRequest, matchedParams = {}, sharedContext = {}) {
+async function buildMockRequest(nextRequest, matchedParams = {}, sharedContext = {}, routeKey = "") {
   const url = new URL(nextRequest.url);
   const contentType = nextRequest.headers.get("content-type") || "";
+  const uploadValidator = UPLOAD_VALIDATORS.get(routeKey) || validateUploadedFile;
 
   let body = {};
   let file = null;
@@ -89,11 +110,20 @@ async function buildMockRequest(nextRequest, matchedParams = {}, sharedContext =
             fieldname: key,
           };
 
-          const validation = validateUploadedFile(candidate);
+          const validation = uploadValidator(candidate);
           if (!validation.valid) {
             fileError = validation.reason;
             break;
           }
+          // Server-verified mime (from the actual magic-byte check
+          // above), not the client-supplied `candidate.mimetype` —
+          // attached here since it was already being computed and then
+          // silently discarded. Phase D's employee-document upload
+          // needs to know "was this a PDF or an image" to decide
+          // whether to attempt OCR, and re-deriving that a second time
+          // in the controller would just duplicate the same magic-byte
+          // check validateUploadedEmployeeDocument already did.
+          candidate.detectedMime = validation.detectedMime;
           const scan = await scanFileForViruses(candidate);
           if (!scan.clean) {
             fileError = "This file was flagged by security scanning and can't be uploaded.";
@@ -404,7 +434,7 @@ async function handleRequest(nextRequest, params, routes, sharedContext) {
   }
 
   const [middlewares, controller] = match.handler;
-  const mockReq = await buildMockRequest(nextRequest, match.params, sharedContext);
+  const mockReq = await buildMockRequest(nextRequest, match.params, sharedContext, routeKey);
 
   // File upload security: reject before any middleware/controller sees
   // the request at all if the uploaded file failed validation (wrong/

@@ -88,6 +88,16 @@ export const demoUsers = [
   // real data.
   { name: "Demo Explorer",    email: "demoadmin@shahpremiumfoods.com",  password: "Demo@1234",  role: "DEMO_ADMIN", mobile: "+8801711000007" },
   { name: "HR Priya",         email: "hr@shahpremiumfoods.com",         password: "Hr@123456",  role: "HR",         mobile: "+8801711000008" },
+  // Plain User-role account for testing dashboard/sidebar RBAC scoping
+  // (login and confirm the sidebar/dropdown only ever show Customer care
+  // and call center, with no Add/Edit/Delete Agent controls anywhere).
+  // For a fully working agent with SIP credentials + softphone, use the
+  // dedicated "Add Call Center Agent" flow instead (Customer Care →
+  // Call Center, Super Admin only) — that path also creates the matching
+  // Employee record with isCallCenterAgent:true, which this seed entry
+  // deliberately does not (seed.js doesn't create Employee docs for any
+  // role, HR Priya included — kept consistent with that).
+  { name: "Agent Tanvir",     email: "agent@shahpremiumfoods.com",      password: "Agent@123",  role: "CALL_CENTER_AGENT", mobile: "+8801711000009" },
   { name: "Rahim Uddin",      email: "user1@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000001" },
   { name: "Karim Hossain",    email: "user2@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000002" },
   { name: "Fatima Begum",     email: "user3@shahpremiumfoods.com",      password: "User@123",   role: "USER",       mobile: "+8801911000003" },
