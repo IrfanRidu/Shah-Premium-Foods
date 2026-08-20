@@ -1,13 +1,18 @@
 "use client";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
+import { FaEye, FaCheck } from "react-icons/fa";
 import { displayPrice, priceWithDiscount, validURLConvert } from "@/lib/utils";
 import { getCampaignIcon } from "@/lib/campaignIcons";
 import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
+import { useCompare } from "@/hooks/useCompare";
 import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
 import WishlistButton from "./WishlistButton";
+import StarRating from "./StarRating";
+import QuickView from "./QuickView";
+import toast from "react-hot-toast";
 
 // Fix 29: Show short description (truncated)
 // Fix 32: Uniform card heights via flex layout
@@ -42,6 +47,24 @@ function ProductCard({ product }) {
   const threshold    = product.lowStockThreshold || 10;
   const isLowStock   = product.stock > 0 && product.stock <= threshold;
 
+  // Session 4 (Luxury redesign) — Quick View + Compare, the two
+  // remaining Highest-Priority card features. Local, per-card state:
+  // each card owns its own Quick View modal independently (no global
+  // "which card is open" state needed), matching the existing modal
+  // convention elsewhere in this app of a component rendering its own
+  // overlay rather than a portal/global modal manager.
+  const [showQuickView, setShowQuickView] = useState(false);
+  const { isComparing, toggle } = useCompare();
+  const comparing = isComparing(product._id);
+
+  const handleCompareToggle = (e) => {
+    e.stopPropagation();
+    const result = toggle(product._id);
+    if (!result.ok && result.reason === "max") {
+      toast.error("You can compare up to 4 products at a time");
+    }
+  };
+
   return (
     <div
       onClick={() => router.push(`/product/${validURLConvert(product.name, product._id)}`)}
@@ -62,9 +85,47 @@ function ProductCard({ product }) {
           className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
 
-        {/* Wishlist toggle — top-right, mirrors the badges' top-left placement */}
-        <div className="absolute top-2 right-2 z-10">
+        {/* Wishlist toggle — top-right, mirrors the badges' top-left placement.
+            Quick View + Compare (Session 4) stack directly below it, but
+            only from sm: up — this app's own existing comments note a
+            2-column mobile grid produces ~136px-wide cards, and with the
+            image at aspect-square (~136px tall too), 3 stacked 32px
+            buttons (~108px) would consume nearly the whole image's
+            height on the tightest screens, overwhelming a small product
+            photo rather than complementing it. Wishlist alone at that
+            size is the same footprint this card already shipped with
+            before this session — zero regression there; Quick View and
+            Compare are still one tap away via the full product page at
+            every screen size, just not crowded onto the smallest grid
+            cards specifically. This corner is also the only one of the
+            four guaranteed collision-free against every OTHER floating
+            element the image can show (campaign/discount badge top-left,
+            low-stock badge bottom-center) at any card width, checked
+            against each badge's actual positioning rather than assumed
+            clear. */}
+        <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
           <WishlistButton productId={product._id} variant="floating" size={13} />
+          <div className="hidden sm:flex sm:flex-col gap-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowQuickView(true); }}
+              aria-label="Quick view"
+              title="Quick View"
+              className="h-8 w-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow hover:scale-110 transition-transform text-gray-500"
+            >
+              <FaEye size={13} />
+            </button>
+            <button
+              onClick={handleCompareToggle}
+              aria-label={comparing ? "Remove from compare" : "Add to compare"}
+              aria-pressed={comparing}
+              title="Compare"
+              className={`h-8 w-8 rounded-full flex items-center justify-center backdrop-blur-sm shadow hover:scale-110 transition-transform ${
+                comparing ? "bg-theme-primary text-white" : "bg-white/90 text-gray-500"
+              }`}
+            >
+              {comparing ? <FaCheck size={12} /> : <span className="h-3 w-3 rounded-sm border-2 border-current" />}
+            </button>
+          </div>
         </div>
 
         {/* Campaign badge */}
@@ -128,19 +189,18 @@ function ProductCard({ product }) {
           )}
           {product.unit && <p className="text-[11px] sm:text-xs text-theme-muted">{product.unit}</p>}
 
-          {/* Rating: this codebase has no review/rating system yet (no
-              model, no data anywhere) — deliberately NOT showing fabricated
-              stars, since that would misrepresent real product quality to
-              a shopper. This renders only if product.rating is ever
-              actually populated by a future backend feature, so the card
-              is ready for it without any further layout change. */}
+          {/* Rating (Session 4): product.rating/numReviews are now real,
+              denormalized fields kept in sync by every review
+              create/update/moderate/delete (see server/utils/
+              reviewAggregation.js) — no longer a stub waiting on future
+              data. Still conditionally hidden for genuinely unreviewed
+              products, same as before: a product with zero reviews has
+              rating 0, and showing an empty/zero star row would look
+              like a broken component rather than "no reviews yet". */}
           {typeof product.rating === "number" && product.rating > 0 && (
             <div className="flex items-center gap-1 pt-0.5">
-              <span className="flex items-center gap-0.5 text-amber-400 text-xs">
-                {"★".repeat(Math.round(product.rating))}
-                <span className="text-[var(--color-border)]">{"★".repeat(5 - Math.round(product.rating))}</span>
-              </span>
-              {typeof product.numReviews === "number" && (
+              <StarRating value={product.rating} size={12} />
+              {typeof product.numReviews === "number" && product.numReviews > 0 && (
                 <span className="text-[11px] text-theme-muted">({product.numReviews})</span>
               )}
             </div>
@@ -163,6 +223,8 @@ function ProductCard({ product }) {
           </div>
         </div>
       </div>
+
+      {showQuickView && <QuickView product={product} onClose={() => setShowQuickView(false)} />}
     </div>
   );
 }

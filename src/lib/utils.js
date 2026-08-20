@@ -130,6 +130,30 @@ export const isEmployeeRole = (role) => EMPLOYEE_ROLES.includes(role);
 export const hasDashboardAccess = (role) => isAdmin(role) || isDemoAdmin(role) || isEmployeeRole(role);
 
 // ── Error toast ──────────────────────────────────────────────────
+// Session 4 (Reviews & Q&A) — relative-time display ("2 days ago") for
+// review/question timestamps. Added here rather than inline in any one
+// component since it's a genuinely generic utility, same category as
+// displayPrice/validURLConvert above — nothing about it is
+// review-specific despite this being the first caller.
+export const timeAgo = (date) => {
+  if (!date) return "";
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const units = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["week", 604800],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  for (const [label, secs] of units) {
+    const count = Math.floor(seconds / secs);
+    if (count >= 1) return `${count} ${label}${count > 1 ? "s" : ""} ago`;
+  }
+  return "just now";
+};
+
 export const axiosToastError = (error) => {
   const msg =
     error?.response?.data?.message ||

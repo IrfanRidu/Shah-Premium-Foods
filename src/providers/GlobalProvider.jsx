@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { usePathname } from "next/navigation";
 import { v4 as uuid } from "uuid";
@@ -33,11 +33,18 @@ const GlobalContext = createContext({
   fetchExchangeRates: () => {},
   refreshAll: () => {},
   logActivity: () => {},
+  // Phase 12 (login-flash fix) — see the mount effect and layout.jsx's
+  // own comment for the full reasoning. Defaults here match this app's
+  // own existing pattern for this object (every other entry is a no-op
+  // fallback too) — real values always come from the actual Provider
+  // below, these only matter if something somehow renders outside it.
+  authChecked: false,
+  hasSessionHint: false,
 });
 
 export const useGlobalContext = () => useContext(GlobalContext);
 
-export default function GlobalProvider({ children }) {
+export default function GlobalProvider({ children, hasSessionHint = false }) {
   const dispatch  = useDispatch();
   const userId    = useSelector((s) => s.user._id);
   const theme     = useSelector((s) => s.siteSettings.theme);
@@ -46,6 +53,15 @@ export default function GlobalProvider({ children }) {
   const selectedCurrency = useSelector((s) => s.currency.selected);
   const ratesUpdatedAt   = useSelector((s) => s.currency.updatedAt);
   const initDone = useRef(false);
+  // Phase 12 (login-flash fix). True once the initial, mount-time
+  // fetchUser() attempt has resolved (success or failure) — OR
+  // immediately, if there was never a reason to attempt it in the first
+  // place (no session hint and no localStorage token — see the mount
+  // effect below). Header.jsx uses this alongside `hasSessionHint` to
+  // show a brief loading state instead of a hard "Login" button while
+  // this is still false AND a session looked likely, rather than
+  // flashing "logged out" and then correcting a moment later.
+  const [authChecked, setAuthChecked] = useState(false);
 
   // ─── Data fetchers ───────────────────────────────────────────────
   const fetchUser = useCallback(async () => {
@@ -60,6 +76,10 @@ export default function GlobalProvider({ children }) {
     } catch {
       dispatch(logout());
       dispatch(clearPermissions());
+    } finally {
+      // Phase 12: covers both outcomes above — a successful login
+      // confirmation and a failed/expired one both count as "checked."
+      setAuthChecked(true);
     }
   }, [dispatch]);
 
@@ -291,13 +311,30 @@ export default function GlobalProvider({ children }) {
     fetchActiveCoupons();
     fetchExchangeRates();
 
-    if (typeof window !== "undefined" && localStorage.getItem("accessToken")) {
+    if (
+      hasSessionHint ||
+      (typeof window !== "undefined" && localStorage.getItem("accessToken"))
+    ) {
+      // Phase 12: `hasSessionHint` (the real httpOnly cookie, read
+      // server-side in layout.jsx) is now an ADDITIONAL trigger
+      // alongside the original localStorage check, not a replacement
+      // for it — this app's own auth.js middleware already accepts
+      // EITHER the cookie or the Authorization-header-from-localStorage
+      // path, so attempting fetchUser() whenever either signal is
+      // present is strictly more correct than relying on localStorage
+      // alone, which could in principle desync from the cookie (e.g. if
+      // a person clears site data selectively).
       fetchUser().then(() => {
         fetchCartItems();
         fetchAddress();
         fetchWishlist();
         fetchOrders();
       });
+    } else {
+      // Nothing suggests a session at all — resolve `authChecked`
+      // immediately rather than leaving Header.jsx waiting on a
+      // fetchUser() call that will never happen.
+      setAuthChecked(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -358,10 +395,12 @@ export default function GlobalProvider({ children }) {
     fetchUser, fetchCartItems, fetchAddress, fetchWishlist, fetchOrders,
     fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
     fetchExchangeRates, refreshAll, logActivity,
+    authChecked, hasSessionHint,
   }), [
     fetchUser, fetchCartItems, fetchAddress, fetchWishlist, fetchOrders,
     fetchCategories, fetchSiteSettings, fetchCampaigns, fetchActiveCoupons,
     fetchExchangeRates, refreshAll, logActivity,
+    authChecked, hasSessionHint,
   ]);
 
   return (

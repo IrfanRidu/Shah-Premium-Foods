@@ -9,7 +9,7 @@ import { updateCartItemQty, removeCartItem } from "@/store/cartSlice";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import toast from "react-hot-toast";
 
-export default function AddToCartButton({ product }) {
+export default function AddToCartButton({ product, initialQty = 1 }) {
   const dispatch  = useDispatch();
   const cart      = useSelector((s) => s.cartItem.cart);
   const userId    = useSelector((s) => s.user._id);
@@ -25,6 +25,21 @@ export default function AddToCartButton({ product }) {
       setLoading(true);
       const r = await Axios({ ...api.addToCart, data: { productId: product._id } });
       if (r.data?.success) {
+        // Session 4 (Luxury PDP redesign) — pre-add quantity selector.
+        // addToCartItemController always creates the row at quantity:1
+        // (existing, unmodified, checkout-adjacent business logic —
+        // deliberately not touched here). A caller that wants more than
+        // 1 right away (ProductPurchasePanel's new quantity stepper)
+        // composes around that with a second call to the SAME
+        // already-existing, already-proven update-quantity endpoint the
+        // stepper below already uses for +/- — not a new code path,
+        // just this one reused twice. Every OTHER caller of this button
+        // (ProductCard's quick-add, etc.) never passes initialQty, so
+        // this block simply never runs for them — fully backward
+        // compatible, zero behavior change for existing callers.
+        if (initialQty > 1 && r.data?.data?._id) {
+          await Axios({ ...api.updateCartItemQty, data: { _id: r.data.data._id, qty: initialQty } });
+        }
         toast.success("Added to cart");
         await fetchCartItems();
         // Track this for the recommendation engine

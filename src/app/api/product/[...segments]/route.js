@@ -10,6 +10,7 @@ import {
   updateProductController,
   deleteProductController,
   searchProductController,
+  getFrequentlyBoughtTogetherController,
 } from "@/server/controllers/product.controller";
 
 const ROUTES = {
@@ -21,6 +22,9 @@ const ROUTES = {
   "PUT:/update":                                    [[auth, checkPermission("products", "edit")],   updateProductController],
   "DELETE:/delete":                                 [[auth, checkPermission("products", "delete")], deleteProductController],
   "POST:/search":                                   [[], searchProductController],
+  // Session 4 (Luxury PDP redesign) — public, no auth needed, same as
+  // every other product-read route above.
+  "GET:/frequently-bought-together":                [[], getFrequentlyBoughtTogetherController],
 };
 
 // Fix 3: without this, Next.js can statically cache this route's

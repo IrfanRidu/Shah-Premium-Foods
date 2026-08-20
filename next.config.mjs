@@ -48,6 +48,29 @@ const nextConfig = {
   // top-level `serverExternalPackages` in Next.js 15+. The old top-level
   // key was silently ignored and printed an "Invalid next.config.mjs
   // options" warning on every boot/build.
+  //
+  // Phase 9 (user-reported build error): `ws` (a real dependency of
+  // `ari-client`, the call-center Asterisk telephony client) has two
+  // OPTIONAL native addons, `bufferutil` and `utf-8-validate` — pure
+  // performance optimizations `ws` itself wraps in try/catch and falls
+  // back gracefully without at runtime if they're not installed (a very
+  // common, well-documented situation, since they require native
+  // compilation toolchains many machines — especially Windows without
+  // build tools configured — don't have set up, so npm silently skips
+  // them as failed optional deps rather than erroring). Webpack's build
+  // -time bundler has no way to know about that runtime try/catch — it
+  // statically tries to resolve every `require()` it finds while tracing
+  // the module graph to bundle it, and fails HARD the moment it can't
+  // find `utf-8-validate` on disk, exactly as the reported error trace
+  // shows (`./src/app/api/user/[...segments]/route.js` transitively
+  // pulls in attendanceService → socketServer → ariClient → the
+  // `ari-client` package → `ws` → the unresolvable optional require).
+  // Adding `ari-client` and `ws` here tells Next.js to leave them as
+  // plain, un-bundled `require()` calls resolved by Node itself at
+  // runtime instead — which correctly reaches `ws`'s own try/catch
+  // fallback, the same way `mongoose`/`bcryptjs`/etc. below already
+  // needed the exact same treatment for their own native-binding-style
+  // dependencies.
   experimental: {
     serverComponentsExternalPackages: [
       "mongoose",
@@ -57,7 +80,28 @@ const nextConfig = {
       "stripe",
       "resend",
       "multer",
+      "ari-client",
+      "ws",
     ],
+  },
+
+  // Second, independent safety net for the exact same ws/bufferutil/
+  // utf-8-validate situation explained above — `resolve.fallback: false`
+  // tells webpack "if you can't find this module, resolve to an empty
+  // stub instead of failing the build," rather than relying solely on
+  // serverComponentsExternalPackages keeping webpack from tracing into
+  // `ws` at all. This specific package combination has some reported
+  // inconsistency across Next.js 14.x patch versions with
+  // serverComponentsExternalPackages alone — cheap, harmless insurance
+  // to add both rather than a single point of failure for a build
+  // -blocking error.
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      bufferutil: false,
+      "utf-8-validate": false,
+    };
+    return config;
   },
 
   images: {

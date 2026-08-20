@@ -488,15 +488,42 @@
   .carousel-dot:not(.active) { width: 6px; }
 
   /* ─── Badge ─────────────────────────────────────────────────── */
-  .badge {
+  .badge, .badge-success, .badge-warning, .badge-danger, .badge-info, .badge-neutral {
     display: inline-flex; align-items: center;
     padding: 0.2rem 0.6rem;
     border-radius: 9999px;
     font-size: 0.7rem;
     font-weight: 600;
-    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-    color: var(--color-primary);
   }
+  .badge { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); }
+
+  /* Session 4 (Luxury redesign — design-system gap fill): status-color
+     badge variants, the "Status colors" piece the brief's design-system
+     list calls for. Until now this only existed as ad-hoc, per-page
+     STATUS_COLOR objects scattered across many dashboard tables (e.g.
+     dashboard/admin-orders/page.jsx's own STATUS_COLOR map) — each
+     hardcoding literal light-mode-only Tailwind classes like
+     "bg-yellow-100 text-yellow-700" with zero dark/ocean/festive-theme
+     awareness. These use color-mix() instead (same pattern as .badge
+     above), so they render correctly across all 4 themes. Semantic
+     status colors (green=success, red=danger, etc.) are deliberately
+     fixed hex values here rather than theme CSS variables — unlike
+     --color-primary, which is SUPPOSED to shift per theme as part of
+     the brand identity, "danger" needs to still read as danger
+     regardless of which theme is active. Deliberately NOT retrofitted
+     into the existing dashboard pages' own STATUS_COLOR objects this
+     session — each has a different, specific status vocabulary (order
+     statuses vs. inventory vs. HR/payroll), and a correct retrofit
+     needs its own careful pass per page rather than a blanket find
+     -replace; tracked as later work, not silently done halfway.
+     Available now for anywhere new that needs a semantic status color —
+     applied this session to the Verified Purchase and Store Answer
+     badges in ReviewsSection.jsx/QASection.jsx. */
+  .badge-success { background: color-mix(in srgb, #16a34a 14%, transparent); color: #16a34a; }
+  .badge-warning { background: color-mix(in srgb, #d97706 14%, transparent); color: #d97706; }
+  .badge-danger  { background: color-mix(in srgb, #dc2626 14%, transparent); color: #dc2626; }
+  .badge-info    { background: color-mix(in srgb, #2563eb 14%, transparent); color: #2563eb; }
+  .badge-neutral { background: color-mix(in srgb, var(--color-muted) 16%, transparent); color: var(--color-muted); }
 
   /* ─── Table ─────────────────────────────────────────────────── */
   .data-table { width: 100%; border-collapse: collapse; }

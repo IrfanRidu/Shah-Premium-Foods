@@ -13,10 +13,12 @@ import PreferenceSelector from "./PreferenceSelector";
 import SafeImage from "./SafeImage";
 import { validURLConvert, displayPrice, priceWithDiscount } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
+import { useGlobalContext } from "@/providers/GlobalProvider";
 
 export default function Header() {
   const { t }          = useTranslation();
   const user          = useSelector((s) => s.user);
+  const { authChecked, hasSessionHint } = useGlobalContext();
   const settings      = useSelector((s) => s.siteSettings);
   const cart          = useSelector((s) => s.cartItem.cart);
   const categories    = useSelector((s) => s.product.allCategory);
@@ -262,6 +264,18 @@ export default function Header() {
                 </div>
               )}
             </div>
+          ) : hasSessionHint && !authChecked ? (
+            // Phase 12 (login-flash fix) — a real session cookie is
+            // present (confirmed server-side, see layout.jsx) but the
+            // actual account details haven't loaded yet. Shown instead
+            // of the hard "Login" link below so a genuinely signed-in
+            // person doesn't see themselves logged out for the brief
+            // moment before fetchUser() resolves — same footprint as the
+            // real avatar button (h-11 w-11, h-8 w-8 inner circle) so
+            // there's no layout shift when this swaps to the real state.
+            <div className="h-11 w-11 flex items-center justify-center" aria-hidden="true">
+              <div className="skeleton h-8 w-8 rounded-full" />
+            </div>
           ) : (
             <Link href="/login" className="btn-primary text-xs sm:text-sm whitespace-nowrap">{t("nav.login")}</Link>
           )}
@@ -312,12 +326,20 @@ export default function Header() {
               );
             })}
             <div className="mt-4 pt-4 pb-2 border-t border-theme">
-              {user._id
-                ? <Link href="/dashboard/profile" onClick={() => setMobileOpen(false)}
-                    className="flex items-center min-h-11 px-3 py-2.5 rounded-lg font-medium active:bg-[var(--color-border)]">{t("nav.myAccount")}</Link>
-                : <Link href="/login" onClick={() => setMobileOpen(false)}
-                    className="block text-center btn-primary">{t("nav.login")}</Link>
-              }
+              {user._id ? (
+                <Link href="/dashboard/profile" onClick={() => setMobileOpen(false)}
+                  className="flex items-center min-h-11 px-3 py-2.5 rounded-lg font-medium active:bg-[var(--color-border)]">{t("nav.myAccount")}</Link>
+              ) : hasSessionHint && !authChecked ? (
+                // Phase 12 (login-flash fix) — same reasoning as the
+                // desktop version above: a real session cookie is
+                // present but not yet confirmed, so this shows a
+                // neutral loading placeholder instead of "Login" for
+                // that brief moment.
+                <div className="skeleton h-11 w-full rounded-lg" aria-hidden="true" />
+              ) : (
+                <Link href="/login" onClick={() => setMobileOpen(false)}
+                  className="block text-center btn-primary">{t("nav.login")}</Link>
+              )}
             </div>
           </nav>
         </div>

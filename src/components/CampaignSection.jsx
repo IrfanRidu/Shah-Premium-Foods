@@ -2,12 +2,15 @@
 import { useEffect, useState, memo } from "react";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
-import { FaChevronRight } from "react-icons/fa";
+import { FaChevronRight, FaEye, FaCheck } from "react-icons/fa";
+import toast from "react-hot-toast";
 import { displayPrice, priceWithDiscount, validURLConvert } from "@/lib/utils";
 import { getCampaignIcon } from "@/lib/campaignIcons";
+import { useCompare } from "@/hooks/useCompare";
 import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
 import HorizontalScroll from "./HorizontalScroll";
+import QuickView from "./QuickView";
 
 // Countdown timer hook — includes days
 function useCountdown(endTime) {
@@ -42,12 +45,34 @@ function CountdownBlock({ value, label }) {
   );
 }
 
-function CampaignProductCard({ item, badgeColor }) {
+function CampaignProductCard({ item, badgeColor, gridMode = false }) {
   const router   = useRouter();
   const currency = useSelector((s) => s.currency.selected);
   const rates    = useSelector((s) => s.currency.rates);
   const product  = item.productId;
+
+  // Phase 8 (user-reported: "no comparing and quick view option for
+  // campaign products") — this card is a separate component from
+  // ProductCard.jsx (different layout: fixed-width carousel item vs. a
+  // grid tile), so it never automatically got ProductCard's Session-4
+  // additions. Same pattern, adapted: this card is wider (w-44 sm:w-52
+  // = 176-208px) than ProductCard's tightest ~136px mobile-grid case
+  // and has no existing wishlist button competing for the corner, so
+  // both buttons show always rather than needing the sm:-and-up gate
+  // ProductCard uses for its 3-button stack.
+  const [showQuickView, setShowQuickView] = useState(false);
+  const { isComparing, toggle } = useCompare();
+
   if (!product) return null;
+  const comparing = isComparing(product._id);
+
+  const handleCompareToggle = (e) => {
+    e.stopPropagation();
+    const result = toggle(product._id);
+    if (!result.ok && result.reason === "max") {
+      toast.error("You can compare up to 4 products at a time");
+    }
+  };
 
   const originalPrice = product.price;
   const discount      = item.specialDiscount || product.discount || 0;
@@ -56,7 +81,7 @@ function CampaignProductCard({ item, badgeColor }) {
   return (
     <div
       onClick={() => router.push(`/product/${validURLConvert(product.name, product._id)}`)}
-      className="shrink-0 w-44 sm:w-52 cursor-pointer product-card group"
+      className={`cursor-pointer product-card group ${gridMode ? "w-full" : "shrink-0 w-44 sm:w-52"}`}
     >
       <div className="relative overflow-hidden bg-[var(--color-bg)] aspect-square">
         <SafeImage
@@ -74,6 +99,28 @@ function CampaignProductCard({ item, badgeColor }) {
             {discount}% OFF
           </span>
         )}
+
+        <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowQuickView(true); }}
+            aria-label="Quick view"
+            title="Quick View"
+            className="h-8 w-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow hover:scale-110 transition-transform text-gray-500"
+          >
+            <FaEye size={13} />
+          </button>
+          <button
+            onClick={handleCompareToggle}
+            aria-label={comparing ? "Remove from compare" : "Add to compare"}
+            aria-pressed={comparing}
+            title="Compare"
+            className={`h-8 w-8 rounded-full flex items-center justify-center backdrop-blur-sm shadow hover:scale-110 transition-transform ${
+              comparing ? "bg-theme-primary text-white" : "bg-white/90 text-gray-500"
+            }`}
+          >
+            {comparing ? <FaCheck size={12} /> : <span className="h-3 w-3 rounded-sm border-2 border-current" />}
+          </button>
+        </div>
       </div>
       <div className="p-3 space-y-1.5">
         <h3 className="text-sm font-semibold line-clamp-2 leading-snug">{product.name}</h3>
@@ -90,6 +137,8 @@ function CampaignProductCard({ item, badgeColor }) {
           <AddToCartButton product={product} />
         </div>
       </div>
+
+      {showQuickView && <QuickView product={product} onClose={() => setShowQuickView(false)} />}
     </div>
   );
 }
@@ -204,12 +253,43 @@ function CampaignSection({ campaign }) {
         </div>
       )}
 
+      {/* Phase 12 (user-reported, with screenshots: "Currently Trending",
+          "Best Selling", "All-Time Favourites" showing only 2-4 products
+          with a large empty gap where a full row should be — "every
+          section must display minimum a full row of products"). Real,
+          fixable layout issue, distinct from the PRIOR round's "Clearance
+          Picks"/"Best Selling" report (that one really was a content
+          question — campaign.products itself only had 2 entries, and
+          this component has no slice/limit anywhere, confirmed by
+          reading it directly). This time the products list can be
+          small AND the fixed-width scroll-row card sizing (w-44/w-52)
+          is exactly what leaves a large unfilled gap when there aren't
+          enough items to need scrolling — that part IS a genuine layout
+          bug, independent of how many products any given campaign
+          actually has. Fix: below a small-enough count, render as a
+          responsive GRID (cards naturally fill their cell — always
+          "looks full" regardless of viewport width) instead of the
+          fixed-width scroll row; only switch to the scroll pattern once
+          there are genuinely more products than fit in one row, where
+          horizontal scroll is the correct, expected way to reach the
+          rest rather than a symptom of a layout gap. 5 is the grid's
+          widest column count (lg:grid-cols-5) — chosen so the grid
+          threshold and the grid's own max density line up, rather than
+          picking two unrelated numbers. */}
       <div className="p-4 bg-[var(--color-bg)]">
-        <HorizontalScroll autoScroll autoScrollSpeed={35}>
-          {products.map((item, i) => (
-            <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} />
-          ))}
-        </HorizontalScroll>
+        {products.length <= 5 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+            {products.map((item, i) => (
+              <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} gridMode />
+            ))}
+          </div>
+        ) : (
+          <HorizontalScroll autoScroll autoScrollSpeed={35}>
+            {products.map((item, i) => (
+              <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} />
+            ))}
+          </HorizontalScroll>
+        )}
       </div>
     </section>
   );

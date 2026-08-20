@@ -1,7 +1,9 @@
+import mongoose from "mongoose";
 import ProductModel from "../models/product.model.js";
 import InventoryLogModel from "../models/inventoryLog.model.js";
 import CategoryModel from "../models/category.model.js";
 import SubCategoryModel from "../models/subcategory.model.js";
+import OrderModel from "../models/order.model.js";
 
 // Mobile UI pass (Section 11 — "mobile-friendly sorting"): this didn't
 // exist before — every public product-list query hardcoded
@@ -271,6 +273,60 @@ export const searchProductController = async (req, res) => {
     const dataCount = await ProductModel.countDocuments(query);
     return res.json({ message: "Products fetched successfully", error: false, success: true,
       data, page, limit, totalCount: dataCount, totalPage: Math.ceil(dataCount / limit) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });
+  }
+};
+
+// Session 4 (Luxury PDP redesign) — "Frequently Bought Together". Real
+// co-purchase aggregation, not a relabeled "related products" query:
+// looks at every OTHER order that also contains this product, ranks the
+// other productIds in those same orders by how often they co-occur,
+// and returns the top matches — excluding out-of-stock/unpublished
+// items so the panel never suggests something that can't actually be
+// added to cart. Computed on demand (not denormalized like rating/
+// numReviews) since this is a single PDP-load cost, not a per-card, per
+// -grid-item cost the way rating is.
+export const getFrequentlyBoughtTogetherController = async (req, res) => {
+  try {
+    const { productId, limit = 4 } = req.query;
+    if (!productId) {
+      return res.status(400).json({ message: "Product id is required", error: true, success: false });
+    }
+    const limitNum = Math.min(8, Math.max(1, parseInt(limit) || 4));
+    const objectId = new mongoose.Types.ObjectId(productId);
+
+    const coOccurrence = await OrderModel.aggregate([
+      { $match: { "productDetails.productId": objectId } },
+      { $unwind: "$productDetails" },
+      { $match: { "productDetails.productId": { $ne: objectId } } },
+      { $group: { _id: "$productDetails.productId", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      // Over-fetch candidates since some will be filtered out below
+      // (unpublished / out of stock) — keeps the final list at the
+      // requested size whenever enough real alternatives exist.
+      { $limit: limitNum * 3 },
+    ]);
+
+    const candidateIds = coOccurrence.map((row) => row._id);
+    const products = candidateIds.length
+      ? await ProductModel.find({ _id: { $in: candidateIds }, publish: true, stock: { $gt: 0 } }).lean()
+      : [];
+
+    // Preserve the co-occurrence ranking (Mongo's $in doesn't guarantee
+    // result order matches the id array order).
+    const byId = new Map(products.map((p) => [p._id.toString(), p]));
+    const ordered = candidateIds
+      .map((id) => byId.get(id.toString()))
+      .filter(Boolean)
+      .slice(0, limitNum);
+
+    return res.json({
+      message: "Frequently bought together fetched",
+      error: false,
+      success: true,
+      data: ordered,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message || "Internal server error", error: true, success: false });
   }

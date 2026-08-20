@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef } from "react";
 import { useSelector } from "react-redux";
-import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
+import { FaChevronLeft, FaChevronRight, FaSearch } from "react-icons/fa";
 import { getCampaignIcon } from "@/lib/campaignIcons";
 import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
 import SafeImage from "./SafeImage";
@@ -16,6 +16,31 @@ import SafeImage from "./SafeImage";
 export default function ProductGallery({ images, productId, productName }) {
   const [imgIdx, setImgIdx] = useState(0);
   const touchStartX = useRef(null);
+
+  // Session 4 (Luxury PDP redesign) — desktop hover-zoom. Cursor-position
+  // -driven CSS transform (scale + transform-origin tracking the pointer)
+  // rather than a separate magnified panel: this gallery only has half
+  // the viewport width to work with (md:grid-cols-2 on the product page),
+  // so a same-box zoom that needs no extra horizontal space is the more
+  // robust choice across the actual range of screen widths this has to
+  // support, vs. a classic side-by-side magnifier panel that would fight
+  // the info column for room on anything narrower than a large desktop.
+  // Mouse-driven on purpose (not touch) — phones already get pinch-zoom
+  // natively from the browser and the swipe gesture above is the primary
+  // mobile interaction; a hover effect keyed off mousemove essentially
+  // never fires from a touch-only interaction in modern mobile browsers,
+  // so this needs no explicit device branching.
+  const [zoom, setZoom] = useState({ active: false, x: 50, y: 50 });
+  const imgWrapRef = useRef(null);
+
+  const handleMouseMove = (e) => {
+    if (!imgWrapRef.current) return;
+    const rect = imgWrapRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setZoom({ active: true, x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+  };
+  const handleMouseLeave = () => setZoom((z) => ({ ...z, active: false }));
 
   const campaignMap = useSelector(selectCampaignByProductIdMap);
   const match = campaignMap.get(productId?.toString());
@@ -45,24 +70,43 @@ export default function ProductGallery({ images, productId, productName }) {
   return (
     <div>
       <div
-        className="relative rounded-2xl overflow-hidden bg-[var(--color-surface)] aspect-square mb-3 group"
+        ref={imgWrapRef}
+        className="relative rounded-2xl overflow-hidden bg-[var(--color-surface)] aspect-square mb-3 group md:cursor-zoom-in"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         {images[imgIdx] && (
-          <SafeImage
-            src={images[imgIdx]}
-            alt={productName}
-            fill
-            // Section 9 (Performance) — "Optimize LCP": this is very
-            // likely the Largest Contentful Paint element on a product
-            // page — it's the single largest, most prominent piece of
-            // content, server-rendered with the rest of the page shell
-            // now instead of appearing after a client fetch.
-            priority
-            sizes="(max-width: 768px) 100vw, 50vw"
-            className="object-cover"
-          />
+          <div
+            className="absolute inset-0 transition-transform duration-150 ease-out"
+            style={{
+              transform: zoom.active ? "scale(2)" : "scale(1)",
+              transformOrigin: `${zoom.x}% ${zoom.y}%`,
+            }}
+          >
+            <SafeImage
+              src={images[imgIdx]}
+              alt={productName}
+              fill
+              // Section 9 (Performance) — "Optimize LCP": this is very
+              // likely the Largest Contentful Paint element on a product
+              // page — it's the single largest, most prominent piece of
+              // content, server-rendered with the rest of the page shell
+              // now instead of appearing after a client fetch.
+              priority
+              sizes="(max-width: 768px) 100vw, 50vw"
+              className="object-cover"
+            />
+          </div>
+        )}
+        {/* Desktop-only discoverability hint for the hover-zoom — hidden
+            once zoom is actually active so it doesn't sit on top of the
+            magnified image. */}
+        {images[imgIdx] && !zoom.active && (
+          <span className="hidden md:flex absolute top-3 right-3 items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-black/55 text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <FaSearch size={9} /> Hover to zoom
+          </span>
         )}
         {isCampaign && (
           <span className="absolute top-3 left-3 flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold text-white shadow"

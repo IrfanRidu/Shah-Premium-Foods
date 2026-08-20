@@ -19,9 +19,15 @@ export default function Footer() {
 
   return (
     <footer style={{ backgroundColor: "var(--color-footer-bg)", color: "var(--color-footer-text)" }} className="mt-auto">
-      <div className="container mx-auto px-3 sm:px-4 py-6 lg:py-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8 text-sm">
-        {/* Col 1: Brand / About */}
-        <div className="sm:col-span-2 md:col-span-1">
+      <div className="container mx-auto px-3 sm:px-4 py-6 lg:py-10 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6 sm:gap-8 text-sm">
+        {/* Col 1: Brand / About — Phase 9 (user-reported: "mobile footer
+            single column looks too long"). No longer forced to span 2
+            columns at this breakpoint (it previously did, from sm: up) —
+            with the base grid now 2 columns instead of 1, all four
+            footer modules sit in a clean, evenly-balanced 2×2 arrangement
+            on mobile instead of one long stack; the short about text and
+            small logo read fine in a half-width column. */}
+        <div>
           {settings.logo
             ? <SafeImage src={settings.logo} alt={settings.siteName} width={180} height={40} className="h-10 w-auto mb-3 opacity-90" />
             : <h3 className="font-display text-lg font-semibold mb-3">{settings.siteName || "Shah Premium Foods"}</h3>

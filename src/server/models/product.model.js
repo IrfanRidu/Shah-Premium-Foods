@@ -89,6 +89,23 @@ const productSchema = new mongoose.Schema(
       of: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    // Rating system (Session 4): denormalized average + count, kept in
+    // sync by server/utils/reviewAggregation.js's recalcProductRating()
+    // on every review create/update/status-change/delete. Deliberately
+    // denormalized rather than aggregated live on every product-list
+    // query — product grids render dozens of ProductCards at once, and
+    // this is exactly the field ProductCard.jsx already reads
+    // (`product.rating` / `product.numReviews`, see that file's
+    // pre-existing comment) — no other code path needed to change to
+    // start consuming these once populated.
+    rating: {
+      type: Number,
+      default: 0,
+    },
+    numReviews: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

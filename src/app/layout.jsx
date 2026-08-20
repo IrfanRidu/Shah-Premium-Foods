@@ -1,6 +1,6 @@
 import "./globals.css";
 import { cache } from "react";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import Script from "next/script";
 import Providers from "@/providers/Providers";
 import Header from "@/components/Header";
@@ -114,6 +114,34 @@ export default async function RootLayout({ children }) {
   // browser will refuse to run it under the Content-Security-Policy header.
   const nonce = headers().get("x-csp-nonce") || undefined;
 
+  // Phase 12 (user-reported, second time raised: "user gets logged out
+  // for a few seconds on refresh, sessions should not break"). This is
+  // the safe half of that fix — see GlobalProvider.jsx and Header.jsx for
+  // the rest, and this comment's own reasoning for why it's safe at all
+  // given the documented history in this exact area (store.js's own
+  // fix-note: preloading saved state into Redux once caused a real
+  // hydration crash, because the server has no way to know what a
+  // client's localStorage holds, so server and client would render
+  // different actual content on first paint).
+  //
+  // This is a DIFFERENT situation, not the same mistake reapplied: the
+  // login cookie (`user.controller.js` already sets a real `httpOnly`
+  // `accessToken` cookie on login, confirmed by reading that controller
+  // directly) IS available to the server — `cookies()` reads the same
+  // request headers the browser already sent, unlike localStorage, which
+  // never leaves the browser at all. Reading it here and passing a plain
+  // boolean hint down as a prop means the SERVER-rendered HTML and the
+  // CLIENT's first hydration pass both compute from the exact same,
+  // consistently-serialized value (how Next.js Server → Client prop
+  // passing works) — there's no information asymmetry between them the
+  // way there was with localStorage, so this doesn't reintroduce the
+  // class of bug that caused the original crash. This hint only ever
+  // drives "should the login area show a brief loading state instead of
+  // a hard Login button while we confirm," never the actual signed-in
+  // UI itself — the real user data still only ever comes from
+  // GlobalProvider's existing fetchUser() call, unchanged.
+  const hasSessionHint = !!cookies().get("accessToken")?.value;
+
   // Structured data is free-form admin-entered JSON — validated here so a
   // typo can't break the whole page; an invalid value is just skipped
   // (the Site Settings form itself already warns the admin at save time).
@@ -170,6 +198,53 @@ export default async function RootLayout({ children }) {
   return (
     <html lang="en" className={`${inter.variable} ${playfairDisplay.variable}`}>
       <head>
+        {/* Phase 8 (user-reported: "theme gets default for a moment on
+            refresh, that should not happen"). This is DELIBERATELY a
+            different technique from what store.js's own fix-note history
+            already ruled out — that comment documents a real, confirmed
+            hydration CRASH from once trying to preload saved theme/
+            currency/etc. into Redux's initial state (server can't read
+            localStorage, so server and client would render different
+            actual content on first paint — a genuine mismatch). This
+            script does NOT touch Redux or any React-rendered content at
+            all — it only sets a raw `data-theme` attribute directly on
+            `<html>`, which is already being managed via a plain
+            `document.documentElement.setAttribute()` call in
+            GlobalProvider.jsx rather than through JSX props, meaning
+            React was never comparing/reconciling this attribute during
+            hydration in the first place. Running that same, already
+            -safe DOM write earlier (before first paint, via `next/script`
+            `strategy="beforeInteractive"`) instead of later (in a
+            post-hydration useEffect) eliminates the visible color flash
+            without going anywhere near the class of bug that caused the
+            original crash. Deliberately NOT attempting the same trick
+            for language/currency/login state below — those DO drive
+            actual rendered text/content through Redux + React, which is
+            exactly the category of change that already caused a real
+            hydration crash once; fixing that safely needs the app to
+            know these from a server-readable source (cookies, not
+            localStorage) before first render, which is a real, separate,
+            larger piece of work, not a quick patch here. Mirrors
+            GlobalProvider.jsx's own restore logic exactly (same
+            localStorage key, same isOverride gate) so it never disagrees
+            with what that effect would have set anyway. */}
+        <Script
+          id="theme-preinit"
+          nonce={nonce}
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `try {
+  var raw = localStorage.getItem("spf_store_v1");
+  if (raw) {
+    var parsed = JSON.parse(raw);
+    var theme = parsed && parsed.siteSettings && parsed.siteSettings.theme;
+    if (theme && theme.isOverride && theme.activeTheme) {
+      document.documentElement.setAttribute("data-theme", theme.activeTheme);
+    }
+  }
+} catch (e) {}`,
+          }}
+        />
         {/* Section 9 (Performance) — "Preconnect / DNS-prefetch". Fonts no
             longer need this at all (next/font self-hosts them — see
             lib/fonts.js), but Cloudinary genuinely is fetched from on
@@ -235,7 +310,7 @@ gtag('config', '${seo.googleAnalyticsId}');`,
           className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:bg-theme-primary focus:text-white focus:px-4 focus:py-2.5 focus:rounded-lg focus:font-semibold focus:shadow-lg">
           Skip to content
         </a>
-        <Providers>
+        <Providers hasSessionHint={hasSessionHint}>
           <Header />
           <main id="main-content" className="flex-1">{children}</main>
           <Footer />

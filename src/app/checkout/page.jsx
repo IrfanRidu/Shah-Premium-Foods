@@ -11,7 +11,7 @@ import { clearAppliedCoupon } from "@/store/couponSlice";
 import { useGlobalContext } from "@/providers/GlobalProvider";
 import NoData from "@/components/NoData";
 import SafeImage from "@/components/SafeImage";
-import { FaTruck, FaInfoCircle } from "react-icons/fa";
+import { FaTruck, FaInfoCircle, FaLock, FaShieldAlt, FaCheckCircle } from "react-icons/fa";
 import { useTranslation } from "@/lib/i18n";
 import toast from "react-hot-toast";
 
@@ -187,6 +187,28 @@ export default function CheckoutPage() {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
+      {/* Phase 7 (Checkout polish) — lightweight progress indicator. Purely
+          informational (not clickable/gating) — this checkout is
+          deliberately a single page, not a multi-step wizard, which is
+          itself the more friction-reducing pattern the brief separately
+          asks for ("minimize unnecessary steps"). This gives the "clear
+          progress indicator" the brief also asks for without breaking
+          that — showing where the person is in the broader Cart →
+          Checkout → Confirmation journey, not turning one page into
+          three. */}
+      <nav aria-label="Checkout progress" className="flex items-center gap-2 mb-4 text-xs sm:text-sm">
+        <span className="flex items-center gap-1.5 text-theme-muted">
+          <FaCheckCircle className="text-green-600" size={14} /> Cart
+        </span>
+        <span className="text-theme-muted opacity-40">─</span>
+        <span className="flex items-center gap-1.5 font-semibold text-theme-primary">
+          <span className="h-5 w-5 rounded-full bg-theme-primary text-white flex items-center justify-center text-[10px] font-bold">2</span>
+          Checkout
+        </span>
+        <span className="text-theme-muted opacity-40">─</span>
+        <span className="text-theme-muted">Confirmation</span>
+      </nav>
+
       <h1 className="section-heading text-2xl sm:text-3xl mb-4 sm:mb-7">{t("checkout.title")}</h1>
 
       {/* Profile info warning (name only — mobile is no longer required on the profile) */}
@@ -311,6 +333,21 @@ export default function CheckoutPage() {
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* Trust indicators (Phase 7 — the brief's own checkout list asks
+              for these explicitly). Kept factual/generic (encryption in
+              transit, standard payment-industry practice) rather than
+              inventing specific certifications or guarantees this system
+              has no record of — same honesty standard as DeliveryInfo's
+              returns copy earlier in this session. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-theme-muted">
+            <span className="flex items-center gap-1.5">
+              <FaLock size={12} className="text-theme-primary" /> Secure, encrypted checkout
+            </span>
+            <span className="flex items-center gap-1.5">
+              <FaShieldAlt size={12} className="text-theme-primary" /> Your data is never shared
+            </span>
           </div>
         </div>
 

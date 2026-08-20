@@ -23,16 +23,29 @@ export default function ProductSuggestions({ productId }) {
 
   if (suggestions.length === 0) return null;
 
+  // Phase 12: same adaptive fix as CampaignSection.jsx — few items fill a
+  // proper responsive grid row instead of leaving a large empty gap in a
+  // fixed-width scroll row; more items use the scroll pattern, where
+  // that's the correct, expected way to browse further rather than a
+  // symptom of unfilled space.
   return (
     <section>
       <h2 className="section-heading text-xl mb-4">You May Also Like</h2>
-      <HorizontalScroll>
-        {suggestions.map((p) => (
-          <div key={p._id} className="shrink-0 w-44 sm:w-52">
-            <ProductCard product={p} />
-          </div>
-        ))}
-      </HorizontalScroll>
+      {suggestions.length <= 5 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+          {suggestions.map((p) => (
+            <ProductCard key={p._id} product={p} />
+          ))}
+        </div>
+      ) : (
+        <HorizontalScroll>
+          {suggestions.map((p) => (
+            <div key={p._id} className="shrink-0 w-44 sm:w-52">
+              <ProductCard product={p} />
+            </div>
+          ))}
+        </HorizontalScroll>
+      )}
     </section>
   );
 }

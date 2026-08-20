@@ -4,13 +4,15 @@ import { Toaster } from "react-hot-toast";
 import { store } from "@/store/store";
 import GlobalProvider from "./GlobalProvider";
 import DemoModeNotice from "@/components/DemoModeNotice";
+import CompareBar from "@/components/CompareBar";
 
-export default function Providers({ children }) {
+export default function Providers({ children, hasSessionHint = false }) {
   return (
     <Provider store={store}>
-      <GlobalProvider>
+      <GlobalProvider hasSessionHint={hasSessionHint}>
         {children}
         <DemoModeNotice />
+        <CompareBar />
         <Toaster
           position="top-center"
           containerStyle={{
