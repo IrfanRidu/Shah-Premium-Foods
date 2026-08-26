@@ -6,6 +6,7 @@ import RoleModel from "../models/role.model.js";
 import { EmployeeModel } from "../models/employee.model.js";
 import SupportTicketModel from "../models/supportTicket.model.js";
 import ProductRequestModel from "../models/productRequest.model.js";
+import { AVAILABILITY_FILTER, HOT_DEAL_MIN_DISCOUNT } from "@/lib/recommendationConfig";
 
 const parseDate = (d) => (d ? new Date(d) : null);
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
@@ -149,23 +150,114 @@ export const getDashboardMetricsController = async (req, res) => {
 };
 
 // PRODUCT PERFORMANCE ENDPOINTS (for homepage quadrant sections)
+//
+// Session 6 (user-reported: "the website loads too slow it must load
+// faster"). Each of these 5 was its own separate HTTP round-trip from
+// the homepage (5 requests just to paint 5 rows) — the actual query
+// logic below is UNCHANGED (same filters, same sort, same fallback
+// thresholds, same $nin exclusions), just extracted into a plain
+// fetch*() helper so it can be called either (a) alone, from each
+// endpoint below exactly as before — same URL, same response shape,
+// nothing that already depends on these breaks — or (b) alongside the
+// other 4, from the single new combined endpoint further down, cutting
+// 5 round-trips to 1 without duplicating the query logic in two places
+// that could drift out of sync.
+// `.lean()` added to every ProductModel.find() call in here — verified
+// safe first (see PROGRESS_TRACKER.md Session 6): already an established
+// pattern elsewhere in this codebase, and product.model.js has no
+// virtuals/toJSON transform .lean() would skip. Returns plain JS objects
+// instead of full Mongoose Documents, which is meaningfully cheaper for
+// a read-only list endpoint like these — doesn't change the DATA
+// returned in any way that matters to a caller.
+//
+// Session 8, Phase 8: also now EXPORTED (were previously module-private,
+// used only by this file's own 5 thin controller wrappers + the
+// combined getHomepageRowsController below). homepageRecommendationService.js
+// needs to call these same 5 functions directly to source the
+// trending/bestSelling/clearance/newArrivals/allTimeFavourites sections
+// of the new recommendation API, without a 3rd copy of this same query
+// logic — reusing what's already correct here rather than duplicating it
+// a second time (the combined controller below being the first reuse).
+export async function fetchTrendingProducts(limit) {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const viewed = await ActivityLogModel.aggregate([
+    { $match: { actionType: { $in: ["view","add_to_cart"] }, createdAt: { $gte: since }, productId: { $ne: null } } },
+    { $group: { _id: "$productId", score: { $sum: { $cond: [{ $eq: ["$actionType","add_to_cart"] }, 3, 1] } } } },
+    { $sort: { score: -1 } }, { $limit: limit },
+  ]);
+  if (viewed.length < 5) {
+    return ProductModel.find({ publish: true, stock: { $gt: 0 } }).sort({ createdAt: -1 }).limit(limit).lean();
+  }
+  const ids = viewed.map((v) => v._id);
+  const products = await ProductModel.find({ _id: { $in: ids }, publish: true }).lean();
+  return ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
+}
+
+export async function fetchBestSellingProducts(limit, days) {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const best = await OrderModel.aggregate([
+    { $match: { createdAt: { $gte: since }, order_status: { $nin: ["Cancelled", "Return"] } } },
+    { $unwind: "$productDetails" },
+    { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" }, totalRevenue: { $sum: { $multiply: ["$productDetails.price", "$productDetails.quantity"] } } } },
+    { $sort: { totalQty: -1 } }, { $limit: limit },
+  ]);
+  const ids = best.map((b) => b._id);
+  const products = await ProductModel.find({ _id: { $in: ids }, publish: true }).lean();
+  const sorted = ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
+  if (sorted.length >= 4) return sorted;
+  return ProductModel.find({ publish: true }).sort({ createdAt: -1 }).limit(limit).lean();
+}
+
+export async function fetchLowSellingProducts(limit) {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const soldIds = (await OrderModel.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    { $unwind: "$productDetails" },
+    { $group: { _id: "$productDetails.productId" } },
+  ])).map((x) => x._id);
+  const products = await ProductModel.find({ publish: true, stock: { $gt: 0 }, _id: { $nin: soldIds } }).sort({ createdAt: -1 }).limit(limit).lean();
+  if (products.length >= 4) return products;
+
+  const low = await OrderModel.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    { $unwind: "$productDetails" },
+    { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" } } },
+    { $sort: { totalQty: 1 } }, { $limit: limit },
+  ]);
+  const ids = low.map((b) => b._id);
+  const prods = await ProductModel.find({ _id: { $in: ids }, publish: true }).lean();
+  return prods.length ? prods : products;
+}
+
+export async function fetchNeverSoldProducts(limit) {
+  const soldIds = (await OrderModel.aggregate([
+    { $unwind: "$productDetails" },
+    { $group: { _id: "$productDetails.productId" } },
+  ])).map((x) => x._id);
+  const products = await ProductModel.find({ publish: true, _id: { $nin: soldIds } }).sort({ createdAt: -1 }).limit(limit).lean();
+  if (products.length >= 4) return products;
+  return ProductModel.find({ publish: true }).sort({ createdAt: 1 }).limit(limit).lean();
+}
+
+export async function fetchAllTimeBestSellingProducts(limit) {
+  const best = await OrderModel.aggregate([
+    { $match: { order_status: { $nin: ["Cancelled", "Return"] } } },
+    { $unwind: "$productDetails" },
+    { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" } } },
+    { $sort: { totalQty: -1 } }, { $limit: limit },
+  ]);
+  const ids = best.map((b) => b._id);
+  const products = await ProductModel.find({ _id: { $in: ids }, publish: true }).lean();
+  const sorted = ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
+  if (sorted.length >= 4) return sorted;
+  return ProductModel.find({ publish: true }).sort({ createdAt: -1 }).limit(limit).lean();
+}
+
 export const getTrendingProductsController = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const viewed = await ActivityLogModel.aggregate([
-      { $match: { actionType: { $in: ["view","add_to_cart"] }, createdAt: { $gte: since }, productId: { $ne: null } } },
-      { $group: { _id: "$productId", score: { $sum: { $cond: [{ $eq: ["$actionType","add_to_cart"] }, 3, 1] } } } },
-      { $sort: { score: -1 } }, { $limit: parseInt(limit) },
-    ]);
-    if (viewed.length < 5) {
-      const products = await ProductModel.find({ publish: true, stock: { $gt: 0 } }).sort({ createdAt: -1 }).limit(parseInt(limit));
-      return res.json({ success: true, error: false, data: products });
-    }
-    const ids = viewed.map((v) => v._id);
-    const products = await ProductModel.find({ _id: { $in: ids }, publish: true });
-    const sorted = ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
-    return res.json({ success: true, error: false, data: sorted });
+    const data = await fetchTrendingProducts(parseInt(limit));
+    return res.json({ success: true, error: false, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }
@@ -175,19 +267,8 @@ export const getTrendingProductsController = async (req, res) => {
 export const getBestSellingProductsController = async (req, res) => {
   try {
     const { limit = 20, days = 30 } = req.query;
-    const since = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
-    const best = await OrderModel.aggregate([
-      { $match: { createdAt: { $gte: since }, order_status: { $nin: ["Cancelled", "Return"] } } },
-      { $unwind: "$productDetails" },
-      { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" }, totalRevenue: { $sum: { $multiply: ["$productDetails.price", "$productDetails.quantity"] } } } },
-      { $sort: { totalQty: -1 } }, { $limit: parseInt(limit) },
-    ]);
-    const ids = best.map((b) => b._id);
-    const products = await ProductModel.find({ _id: { $in: ids }, publish: true });
-    const sorted = ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
-    if (sorted.length >= 4) return res.json({ success: true, error: false, data: sorted });
-    const fallback = await ProductModel.find({ publish: true }).sort({ createdAt: -1 }).limit(parseInt(limit));
-    return res.json({ success: true, error: false, data: fallback });
+    const data = await fetchBestSellingProducts(parseInt(limit), parseInt(days));
+    return res.json({ success: true, error: false, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }
@@ -197,24 +278,8 @@ export const getBestSellingProductsController = async (req, res) => {
 export const getLowSellingProductsController = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const soldIds = (await OrderModel.aggregate([
-      { $match: { createdAt: { $gte: since } } },
-      { $unwind: "$productDetails" },
-      { $group: { _id: "$productDetails.productId" } },
-    ])).map((x) => x._id);
-    const products = await ProductModel.find({ publish: true, stock: { $gt: 0 }, _id: { $nin: soldIds } }).sort({ createdAt: -1 }).limit(parseInt(limit));
-    if (products.length >= 4) return res.json({ success: true, error: false, data: products });
-
-    const low = await OrderModel.aggregate([
-      { $match: { createdAt: { $gte: since } } },
-      { $unwind: "$productDetails" },
-      { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" } } },
-      { $sort: { totalQty: 1 } }, { $limit: parseInt(limit) },
-    ]);
-    const ids = low.map((b) => b._id);
-    const prods = await ProductModel.find({ _id: { $in: ids }, publish: true });
-    return res.json({ success: true, error: false, data: prods.length ? prods : products });
+    const data = await fetchLowSellingProducts(parseInt(limit));
+    return res.json({ success: true, error: false, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }
@@ -224,14 +289,8 @@ export const getLowSellingProductsController = async (req, res) => {
 export const getNeverSoldProductsController = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const soldIds = (await OrderModel.aggregate([
-      { $unwind: "$productDetails" },
-      { $group: { _id: "$productDetails.productId" } },
-    ])).map((x) => x._id);
-    const products = await ProductModel.find({ publish: true, _id: { $nin: soldIds } }).sort({ createdAt: -1 }).limit(parseInt(limit));
-    if (products.length >= 4) return res.json({ success: true, error: false, data: products });
-    const fallback = await ProductModel.find({ publish: true }).sort({ createdAt: 1 }).limit(parseInt(limit));
-    return res.json({ success: true, error: false, data: fallback });
+    const data = await fetchNeverSoldProducts(parseInt(limit));
+    return res.json({ success: true, error: false, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }
@@ -241,18 +300,46 @@ export const getNeverSoldProductsController = async (req, res) => {
 export const getAllTimeBestSellingController = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    const best = await OrderModel.aggregate([
-      { $match: { order_status: { $nin: ["Cancelled", "Return"] } } },
-      { $unwind: "$productDetails" },
-      { $group: { _id: "$productDetails.productId", totalQty: { $sum: "$productDetails.quantity" } } },
-      { $sort: { totalQty: -1 } }, { $limit: parseInt(limit) },
+    const data = await fetchAllTimeBestSellingProducts(parseInt(limit));
+    return res.json({ success: true, error: false, data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: true, message: err.message });
+  }
+};
+
+// Session 6 — combined endpoint. Same 5 queries above, run concurrently
+// via Promise.all instead of the homepage firing 5 separate HTTP
+// requests for them. One network round-trip's worth of latency/header
+// overhead instead of 5; nothing about what's queried or how it's
+// filtered/sorted/limited changes — this is purely fewer trips to fetch
+// the exact same data. See page.jsx for the frontend side of this.
+export const getHomepageRowsController = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const l = parseInt(limit);
+    // Session 8, Phase 9-10: `hotDeals` added — spec Section 36
+    // explicitly requires it as part of the fallback set this endpoint
+    // now serves whenever the primary recommendation pipeline
+    // (homepageRecommendationService.js) fails for any reason. Kept
+    // deliberately trivial and independent of every Phase 3-8 file —
+    // a plain, direct discount-threshold query with no dependency on
+    // affinity/scoring/candidate-generation/etc — precisely because
+    // this is THE fallback path: it needs to keep working even if
+    // something elsewhere in this session's own new code doesn't.
+    const [trending, bestSelling, lowSelling, neverSold, allTimeBest, hotDeals] = await Promise.all([
+      fetchTrendingProducts(l),
+      fetchBestSellingProducts(l, 30),
+      fetchLowSellingProducts(l),
+      fetchNeverSoldProducts(l),
+      fetchAllTimeBestSellingProducts(l),
+      ProductModel.find({ ...AVAILABILITY_FILTER, discount: { $gte: HOT_DEAL_MIN_DISCOUNT } })
+        .sort({ discount: -1 }).limit(l).lean(),
     ]);
-    const ids = best.map((b) => b._id);
-    const products = await ProductModel.find({ _id: { $in: ids }, publish: true });
-    const sorted = ids.map((id) => products.find((p) => p._id.toString() === id.toString())).filter(Boolean);
-    if (sorted.length >= 4) return res.json({ success: true, error: false, data: sorted });
-    const fallback = await ProductModel.find({ publish: true }).sort({ createdAt: -1 }).limit(parseInt(limit));
-    return res.json({ success: true, error: false, data: fallback });
+    return res.json({
+      success: true,
+      error: false,
+      data: { trending, bestSelling, lowSelling, neverSold, allTimeBest, hotDeals },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });
   }

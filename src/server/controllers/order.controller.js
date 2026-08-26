@@ -6,6 +6,7 @@ import ProductModel from "../models/product.model.js";
 import CouponModel from "../models/coupon.model.js";
 import InventoryLogModel from "../models/inventoryLog.model.js";
 import AddressModel from "../models/address.model.js";
+import ActivityLogModel from "../models/activityLog.model.js";
 import { resolveDeliveryCharge } from "./deliveryZone.controller.js";
 import stripe from "../config/stripe.js";
 import { createNotification } from "./notification.controller.js";
@@ -92,6 +93,38 @@ const buildOrderItems = async (list_items) => {
   });
 
   return { productDetails, subTotal: Math.round(subTotal * 100) / 100 };
+};
+
+// Session 8 (new feature spec: "Dynamic Personalized Homepage Product
+// Recommendation System") — the recommendation engine's highest-weight
+// signal (spec Section 8: Purchase = +15, by far the largest of any
+// event type) had NO write path anywhere in the codebase before this —
+// confirmed by grep: `"purchase"` existed only in ActivityLogModel's own
+// enum definition, never actually written. One entry PER LINE ITEM
+// (not one per order) so category/product affinity calculations can
+// attribute purchase weight to the actual products bought, not just "this
+// user bought something." Shared by all 3 real order-creation paths in
+// this file (COD, COD-with-online-delivery-charge, and full Stripe
+// payment) so the exact same logic — the deliberate "never fail order
+// placement over a logging write" swallow, the same event shape — isn't
+// tripled. Deliberately OUTSIDE every transaction it's called near, same
+// reasoning already established for `createNotification` just below each
+// call site: not core order data, and a logging hiccup must never roll
+// back — or even fail — an otherwise successful, already-paid-for order.
+const logPurchaseActivity = async (userId, productDetails, orderId) => {
+  try {
+    if (!productDetails?.length) return;
+    await ActivityLogModel.insertMany(
+      productDetails.map((item) => ({
+        userId: userId || null,
+        actionType: "purchase",
+        productId: item.productId,
+        metadata: { orderId, quantity: item.quantity, price: item.price },
+      }))
+    );
+  } catch (err) {
+    console.error("logPurchaseActivity failed (order itself still succeeded):", err.message);
+  }
 };
 
 // Database security audit (Section 7 — transactions + optimistic
@@ -260,6 +293,7 @@ export const cashOnDeliveryOrderController = async (req, res) => {
     // Fix 4: notify admins/agents of the new order — deliberately outside
     // the transaction (not core order data, and no reason a notification
     // hiccup should roll back a successful order).
+    logPurchaseActivity(userId, productDetails, saved.orderId);
     createNotification({
       type: "new_order",
       title: `New order ${saved.orderId}`,
@@ -635,6 +669,7 @@ export const webhookStripeController = async (request, response) => {
           await dbSession.endSession();
         }
 
+        logPurchaseActivity(userId, productDetails, saved.orderId);
         createNotification({
           type: "new_order",
           title: `New order ${saved.orderId}`,
@@ -689,6 +724,7 @@ export const webhookStripeController = async (request, response) => {
         await dbSession2.endSession();
       }
 
+      logPurchaseActivity(userId, productDetails, saved.orderId);
       createNotification({
         type: "new_order",
         title: `New order ${saved.orderId}`,

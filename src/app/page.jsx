@@ -6,6 +6,7 @@ import Carousel from "@/components/Carousel";
 import ProductCard from "@/components/ProductCard";
 import CampaignSection from "@/components/CampaignSection";
 import HorizontalScroll from "@/components/HorizontalScroll";
+import ProductGridOrScroll from "@/components/ProductGridOrScroll";
 import SafeImage from "@/components/SafeImage";
 import { CardSkeleton } from "@/components/Loading";
 import { validURLConvert } from "@/lib/utils";
@@ -21,6 +22,21 @@ import { FaListUl, FaChevronDown, FaChevronUp, FaShoppingBasket } from "react-ic
 // re-renders whenever ANY of them updates (they're all children of the
 // same HomePage component), even though only one row's `products`/`loading`
 // actually changed.
+//
+// Session 5 (user-reported, with screenshots: "Currently Trending" /
+// "Best Selling" / "All-Time Favourites" showing only 2-4 products with a
+// large empty gap where a full row should be). THIS is the component
+// those screenshots actually show — a prior round fixed the same visual
+// bug in CampaignSection.jsx/ProductSuggestions.jsx/RecentlyViewed.jsx/
+// FrequentlyBoughtTogether.jsx but never reached this one, since it lives
+// directly in page.jsx under a different name. Now routed through the
+// same shared `ProductGridOrScroll` those use, so a short list renders as
+// a full-looking adaptive grid instead of a few fixed-width cards
+// stranded in an otherwise-empty scroll row. Loading skeletons are left
+// on the original HorizontalScroll pattern deliberately — the eventual
+// item count isn't known yet while loading, and these rows are fetched
+// with limit:20 (see HomePage below) so a scroll row is the more common
+// steady state to skeleton-match against.
 function ProductRow({ title, icon, subtitle, products, loading }) {
   if (!loading && products.length === 0) return null;
   return (
@@ -34,18 +50,18 @@ function ProductRow({ title, icon, subtitle, products, loading }) {
           </div>
         </div>
       </div>
-      <HorizontalScroll>
-        {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="shrink-0 w-44 sm:w-52"><CardSkeleton /></div>
-            ))
-          : products.map((p) => (
-              <div key={p._id} className="shrink-0 w-44 sm:w-52">
-                <ProductCard product={p} />
-              </div>
-            ))
-        }
-      </HorizontalScroll>
+      {loading ? (
+        <HorizontalScroll>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="shrink-0 w-44 sm:w-52"><CardSkeleton /></div>
+          ))}
+        </HorizontalScroll>
+      ) : (
+        <ProductGridOrScroll
+          items={products}
+          renderItem={(p) => <ProductCard product={p} />}
+        />
+      )}
     </section>
   );
 }
@@ -208,31 +224,78 @@ export default function HomePage() {
   const categories = useSelector((s) => s.product.allCategory);
   const catLoading = useSelector((s) => s.product.loadingCategory);
   const campaigns  = useSelector((s) => s.campaign.campaigns);
+  const sessionId  = useSelector((s) => s.activity.sessionId);
 
-  const [sections, setSections] = useState({
-    trending:    { data: [], loading: true },
-    bestSelling: { data: [], loading: true },
-    lowSelling:  { data: [], loading: true },
-    neverSold:   { data: [], loading: true },
-    allTimeBest: { data: [], loading: true },
+  // Session 8, Phase 9-10 (new personalized recommendation system).
+  // Section keys renamed to match the new backend's own naming
+  // (lowSelling→clearance, neverSold→newArrivals, allTimeBest→
+  // allTimeFavourites — spec Section 29's exact naming) plus 6 new
+  // personalized/promotional sections.
+  const EMPTY_SECTIONS = {
+    trending: [], forYou: [], becauseYouViewed: [], hotDeals: [], bestSelling: [],
+    basedOnSearch: [], clearance: [], newArrivals: [], flashSale: [], allTimeFavourites: [], continueShopping: [],
+  };
+  const [sections, setSections] = useState(() => {
+    const init = {};
+    for (const key of Object.keys(EMPTY_SECTIONS)) init[key] = { data: [], loading: true };
+    return init;
   });
 
+  // Spec Section 36 (error handling) — this exact fallback list ("If the
+  // recommendation API fails, fallback to: Trending, Best Selling, New
+  // Arrivals, Hot Deals... the homepage should still load normally...
+  // do not display a large error message") is also, not coincidentally,
+  // the single most effective risk mitigation available for wiring a
+  // brand-new backend pipeline (Phases 3-8, verified only against mocked
+  // data in this sandbox — never a real database) into the live
+  // homepage: if anything in that pipeline breaks in a way this sandbox
+  // couldn't catch, the page degrades to EXACTLY what it already was
+  // before this session (the proven Session 6-7 path), not to a broken
+  // one. Tried first, not "tried, and if the shape looks odd also fall
+  // back" — any thrown error OR a response that doesn't parse as
+  // expected takes the same fallback path, since a malformed-but-200
+  // response is just as unusable as a real network failure here.
   useEffect(() => {
-    const fetchers = [
-      { key: "trending",    url: api.getTrending    },
-      { key: "bestSelling", url: api.getBestSelling },
-      { key: "lowSelling",  url: api.getLowSelling  },
-      { key: "neverSold",   url: api.getNeverSold   },
-      { key: "allTimeBest", url: api.getAllTimeBest  },
-    ];
-    fetchers.forEach(async ({ key, url }) => {
+    (async () => {
       try {
-        const r = await Axios({ ...url, params: { limit: 20 } });
-        setSections((prev) => ({ ...prev, [key]: { data: r.data?.data || [], loading: false } }));
+        const r = await Axios({ ...api.getHomepageRecommendations, params: { sessionId } });
+        const d = r.data?.data;
+        if (!d || typeof d !== "object") throw new Error("malformed recommendation response");
+        const next = {};
+        for (const key of Object.keys(EMPTY_SECTIONS)) next[key] = { data: d[key] || [], loading: false };
+        setSections(next);
       } catch {
-        setSections((prev) => ({ ...prev, [key]: { data: [], loading: false } }));
+        try {
+          const r2 = await Axios({ ...api.getHomepageRows, params: { limit: 40 } });
+          const d2 = r2.data?.data || {};
+          setSections({
+            trending:          { data: d2.trending    || [], loading: false },
+            bestSelling:       { data: d2.bestSelling || [], loading: false },
+            clearance:         { data: d2.lowSelling  || [], loading: false },
+            newArrivals:       { data: d2.neverSold   || [], loading: false },
+            allTimeFavourites: { data: d2.allTimeBest || [], loading: false },
+            hotDeals:          { data: d2.hotDeals    || [], loading: false },
+            // The 5 genuinely personalized/promotional sections have no
+            // equivalent in this older endpoint — left empty, correctly
+            // hidden by ProductRow's own existing empty-state handling
+            // (spec Section 37), not shown as broken/errored.
+            forYou: { data: [], loading: false }, becauseYouViewed: { data: [], loading: false },
+            basedOnSearch: { data: [], loading: false }, flashSale: { data: [], loading: false },
+            continueShopping: { data: [], loading: false },
+          });
+        } catch {
+          // Both the new pipeline AND the old, previously-rock-solid
+          // fallback failed (e.g. a genuine DB outage) — clear every
+          // loading flag so ProductRow stops showing skeletons forever,
+          // without fabricating an error banner (Section 36: "do not
+          // display a large error message to customers").
+          const cleared = {};
+          for (const key of Object.keys(EMPTY_SECTIONS)) cleared[key] = { data: [], loading: false };
+          setSections(cleared);
+        }
       }
-    });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // De-duplicate: collect product IDs that have been shown to avoid repeating them.
@@ -259,26 +322,74 @@ export default function HomePage() {
     return blockedFromRows;
   }, [campaigns]);
 
-  const dedup = (products, seen) => {
+  // Session 7 (user-reported correction to Session 6's own approach):
+  // "i asked for no duplicate products in a single page but i can see
+  // single product displaying more than once — no products should be
+  // displayed twice in a single page." Session 6 added `fillToMinimum`
+  // right here, which explicitly reused a product an earlier row had
+  // already claimed when a later row fell short of the target — exactly
+  // the behavior now being reported as a bug. That was a deliberate
+  // tradeoff at the time (full rows > strict uniqueness), but the user
+  // has now made the priority explicit the other way: no duplicate
+  // ANYWHERE on the page is the hard rule; a full row is the goal to
+  // reach WITHOUT breaking that rule, not a reason to bend it.
+  // `fillToMinimum` is gone — `dedup` below is the only pass now, and it
+  // structurally cannot produce a duplicate (every id it accepts goes
+  // into `seenInRows`, and nothing already in that set is ever accepted
+  // again). The real fix for "rows still too empty" is above: a much
+  // bigger real candidate pool (limit 20→40) for this strict dedup to
+  // draw genuine, never-shown-elsewhere uniques from, rather than
+  // relaxing the uniqueness rule to compensate for too small a pool. A
+  // row legitimately shows fewer than 5 only when the catalog itself
+  // doesn't contain 5 more unique, not-yet-shown products for that
+  // specific row's own criteria — which is the honest, correct outcome
+  // once "never duplicate" is a hard constraint, not a bug to paper over.
+  // Session 8, Phase 9-10: `dedup` extended with an `exempt` flag for
+  // continueShopping — spec Section 26's own named exception ("allow the
+  // same product in a highly relevant section such as Continue
+  // Shopping"), mirroring the identical exemption
+  // homepageRecommendationService.js already applies server-side
+  // (DIVERSITY_EXEMPT_SECTIONS). Every other row keeps the exact same
+  // strict, structurally-duplicate-proof behavior from Session 7.
+  const dedup = (products, seen, exempt = false) => {
     const result = [];
     for (const p of products) {
       const id = p._id?.toString();
-      if (!seen.has(id) && !usedProductIds.has(id)) {
-        result.push(p);
-        seen.add(id);
-      }
+      if (!exempt && (seen.has(id) || usedProductIds.has(id))) continue;
+      result.push(p);
+      if (!exempt) seen.add(id);
     }
     return result;
   };
 
   const seenInRows = new Set();
-  const rows = [
-    { id: "trending",    title: t("home.trending"),          icon: "🔥", subtitle: "What customers are buzzing about this week", products: dedup(sections.trending.data, seenInRows),    loading: sections.trending.loading },
-    { id: "bestSelling", title: t("home.bestSelling"),        icon: "⭐", subtitle: "Top movers in the last 30 days",            products: dedup(sections.bestSelling.data, seenInRows), loading: sections.bestSelling.loading },
-    { id: "lowSelling",  title: t("home.clearance"),          icon: "📉", subtitle: "Slow-moving stock — great deals available", products: dedup(sections.lowSelling.data, seenInRows),  loading: sections.lowSelling.loading },
-    { id: "neverSold",   title: t("home.newArrivals"),        icon: "🆕", subtitle: "Be the first to try these!",                products: dedup(sections.neverSold.data, seenInRows),   loading: sections.neverSold.loading },
-    { id: "allTimeBest", title: t("home.allTimeFavourites"),  icon: "🏆", subtitle: "Consistently our best sellers",              products: dedup(sections.allTimeBest.data, seenInRows), loading: sections.allTimeBest.loading },
+  // Same order homepageRecommendationService.js processes sections in
+  // server-side (spec Section 29's own response-key order) — kept
+  // consistent between the two paths so which row "wins" a
+  // contested product doesn't depend on which path happened to serve a
+  // given request. Titles/icons for the 6 new sections are plain
+  // English, deliberately NOT routed through the existing `t()` i18n
+  // system yet — a documented scope boundary (see PROGRESS_TRACKER.md),
+  // not an oversight; the 5 original sections' i18n calls are
+  // untouched either way.
+  const rowDefs = [
+    { id: "trending",          title: t("home.trending"),         icon: "🔥", subtitle: "What customers are buzzing about this week", section: sections.trending          },
+    { id: "forYou",             title: "Recommended For You",      icon: "✨", subtitle: "Picked based on your activity",              section: sections.forYou            },
+    { id: "becauseYouViewed",   title: "Because You Viewed",       icon: "👀", subtitle: "More like what you've been looking at",       section: sections.becauseYouViewed  },
+    { id: "hotDeals",           title: "Hot Deals",                icon: "🏷️", subtitle: "Deep discounts, while they last",             section: sections.hotDeals          },
+    { id: "bestSelling",        title: t("home.bestSelling"),      icon: "⭐", subtitle: "Top movers in the last 30 days",              section: sections.bestSelling       },
+    { id: "basedOnSearch",      title: "Based on Your Searches",   icon: "🔍", subtitle: "Related to what you've searched for",         section: sections.basedOnSearch     },
+    { id: "clearance",          title: t("home.clearance"),        icon: "📉", subtitle: "Slow-moving stock — great deals available",   section: sections.clearance         },
+    { id: "newArrivals",        title: t("home.newArrivals"),      icon: "🆕", subtitle: "Be the first to try these!",                  section: sections.newArrivals       },
+    { id: "flashSale",          title: "Flash Sale",               icon: "⚡", subtitle: "Limited-time offers",                         section: sections.flashSale         },
+    { id: "allTimeFavourites",  title: t("home.allTimeFavourites"),icon: "🏆", subtitle: "Consistently our best sellers",               section: sections.allTimeFavourites },
+    { id: "continueShopping",   title: "Continue Shopping",        icon: "🛒", subtitle: "Pick up where you left off",                  section: sections.continueShopping  },
   ];
+  const rows = rowDefs.map((r) => ({
+    id: r.id, title: r.title, icon: r.icon, subtitle: r.subtitle,
+    products: dedup(r.section.data, seenInRows, r.id === "continueShopping"),
+    loading: r.section.loading,
+  }));
 
   const homepageCampaigns = useMemo(
     () => campaigns.filter((c) => c.showOnHomepage).sort((a, b) => a.displayOrder - b.displayOrder),

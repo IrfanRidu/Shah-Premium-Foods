@@ -2,9 +2,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import {
-  FaRegUserCircle, FaShoppingCart, FaBars, FaTimes,
+  FaRegUserCircle, FaShoppingCart, FaHeart, FaBars, FaTimes,
   FaChevronRight, FaChevronDown,
 } from "react-icons/fa";
 import Search from "./Search";
@@ -14,13 +14,16 @@ import SafeImage from "./SafeImage";
 import { validURLConvert, displayPrice, priceWithDiscount } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { useGlobalContext } from "@/providers/GlobalProvider";
+import { openCartDrawer, openWishlistDrawer } from "@/store/uiSlice";
 
 export default function Header() {
   const { t }          = useTranslation();
+  const dispatch       = useDispatch();
   const user          = useSelector((s) => s.user);
   const { authChecked, hasSessionHint } = useGlobalContext();
   const settings      = useSelector((s) => s.siteSettings);
   const cart          = useSelector((s) => s.cartItem.cart);
+  const wishlistItems = useSelector((s) => s.wishlist.wishlistItems);
   const categories    = useSelector((s) => s.product.allCategory);
   const subCategories = useSelector((s) => s.product.allSubCategory);
   const currency      = useSelector((s) => s.currency.selected);
@@ -224,9 +227,21 @@ export default function Header() {
 
         <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 ml-auto">
           <PreferenceSelector />
-          <Link
-            href="/cart"
+
+          {/* Session 5 (user-reported: "cart and wishlist should appear
+              with a slide from the right... without navigating away").
+              Was `<Link href="/cart">` — now a button dispatching into
+              the new `ui` Redux slice instead, so CartDrawer.jsx (mounted
+              once in Providers.jsx) opens in place. All visual classes
+              carried over unchanged; only the tag and the click behavior
+              changed. The underlying /cart PAGE is untouched and still
+              reachable directly (e.g. a bookmarked link, or the drawer's
+              own "View full cart page" link) — this is an additional,
+              faster path to it, not a replacement. */}
+          <button
+            onClick={() => dispatch(openCartDrawer())}
             className="relative h-11 w-11 sm:w-auto shrink-0 flex items-center justify-center sm:justify-start sm:gap-2 sm:px-2 rounded-lg text-theme-primary active:bg-[var(--color-border)] transition-colors"
+            aria-label="Open cart"
           >
             <span className="relative text-2xl">
               <FaShoppingCart />
@@ -239,7 +254,29 @@ export default function Header() {
             {totalQty > 0 && (
               <span className="hidden lg:inline text-sm font-semibold">{displayPrice(totalAmt, currency, rates)}</span>
             )}
-          </Link>
+          </button>
+
+          {/* Session 5 — new. Previously the ONLY way to reach the
+              wishlist was a link buried in the account dropdown
+              (UserMenu.jsx), so it had no header icon at all to give the
+              same drawer treatment to. Added here, same footprint/style
+              as the cart button beside it, so Wishlist gets equal
+              header-level prominence rather than staying a step further
+              away than Cart. */}
+          <button
+            onClick={() => dispatch(openWishlistDrawer())}
+            className="relative h-11 w-11 shrink-0 hidden sm:flex items-center justify-center rounded-lg text-theme-primary active:bg-[var(--color-border)] transition-colors"
+            aria-label="Open wishlist"
+          >
+            <span className="relative text-2xl">
+              <FaHeart />
+              {wishlistItems.length > 0 && (
+                <span className="absolute -top-2 -right-2 bg-[var(--color-secondary-badge)] text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                  {wishlistItems.length}
+                </span>
+              )}
+            </span>
+          </button>
 
           {user._id ? (
             <div

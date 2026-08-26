@@ -7,6 +7,7 @@ import SafeImage from "@/components/SafeImage";
 import ProductCard from "@/components/ProductCard";
 import NoData from "@/components/NoData";
 import CategorySortControl from "@/components/CategorySortControl";
+import CategoryViewTracker from "@/components/CategoryViewTracker";
 
 // Section 9 (Performance) — "ISR". Listing pages care less about
 // per-second freshness than a single product's own price/stock, so this
@@ -88,6 +89,7 @@ export default async function CategorySlugPage({ params, searchParams }) {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
+      <CategoryViewTracker categoryId={category._id} />
       <script
         nonce={nonce}
         type="application/ld+json"

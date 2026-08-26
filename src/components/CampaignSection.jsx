@@ -9,8 +9,10 @@ import { getCampaignIcon } from "@/lib/campaignIcons";
 import { useCompare } from "@/hooks/useCompare";
 import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
-import HorizontalScroll from "./HorizontalScroll";
+import WishlistButton from "./WishlistButton";
+import ProductGridOrScroll from "./ProductGridOrScroll";
 import QuickView from "./QuickView";
+import { useGlobalContext } from "@/providers/GlobalProvider";
 
 // Countdown timer hook — includes days
 function useCountdown(endTime) {
@@ -45,21 +47,28 @@ function CountdownBlock({ value, label }) {
   );
 }
 
-function CampaignProductCard({ item, badgeColor, gridMode = false }) {
+function CampaignProductCard({ item, badgeColor }) {
   const router   = useRouter();
   const currency = useSelector((s) => s.currency.selected);
   const rates    = useSelector((s) => s.currency.rates);
+  const { logActivity } = useGlobalContext();
   const product  = item.productId;
 
   // Phase 8 (user-reported: "no comparing and quick view option for
   // campaign products") — this card is a separate component from
-  // ProductCard.jsx (different layout: fixed-width carousel item vs. a
-  // grid tile), so it never automatically got ProductCard's Session-4
-  // additions. Same pattern, adapted: this card is wider (w-44 sm:w-52
-  // = 176-208px) than ProductCard's tightest ~136px mobile-grid case
-  // and has no existing wishlist button competing for the corner, so
-  // both buttons show always rather than needing the sm:-and-up gate
-  // ProductCard uses for its 3-button stack.
+  // ProductCard.jsx, so it never automatically got ProductCard's
+  // Session-4 additions.
+  // Session 6: WishlistButton added (see the corner-stack comment below)
+  // — with 3 buttons now stacked here too, this card also picked up
+  // ProductCard's `hidden sm:flex` gate on Quick View/Compare, so the
+  // two cards behave identically instead of diverging.
+  // Session 5: sizing is now fully wrapper-controlled (ProductGridOrScroll
+  // wraps this in either a grid cell or a `shrink-0 w-44 sm:w-52` scroll
+  // item — see below), so this card itself just fills its container,
+  // exactly matching ProductCard.jsx's own existing convention. The old
+  // `gridMode` prop that toggled this card's OWN width class is gone —
+  // it became redundant (and a source of duplicated width logic) once
+  // the wrapper started owning sizing in both modes.
   const [showQuickView, setShowQuickView] = useState(false);
   const { isComparing, toggle } = useCompare();
 
@@ -80,8 +89,22 @@ function CampaignProductCard({ item, badgeColor, gridMode = false }) {
 
   return (
     <div
-      onClick={() => router.push(`/product/${validURLConvert(product.name, product._id)}`)}
-      className={`cursor-pointer product-card group ${gridMode ? "w-full" : "shrink-0 w-44 sm:w-52"}`}
+      onClick={() => {
+        // Session 8 (recommendation engine) — same tracking as
+        // ProductCard.jsx's identical click handler (see that file's
+        // comment for the full reasoning); `metadata.source: "campaign"`
+        // distinguishes a click that came from a promotional campaign
+        // context from an organic listing click, which the recommendation
+        // engine's promotion-weight factor (Phase 5+) can use rather than
+        // conflating the two.
+        logActivity?.("product_click", {
+          productId: product._id,
+          categoryId: product.category?.[0]?._id || product.category?.[0],
+          metadata: { source: "campaign" },
+        });
+        router.push(`/product/${validURLConvert(product.name, product._id)}`);
+      }}
+      className="cursor-pointer product-card group w-full h-full"
     >
       <div className="relative overflow-hidden bg-[var(--color-bg)] aspect-square">
         <SafeImage
@@ -101,25 +124,48 @@ function CampaignProductCard({ item, badgeColor, gridMode = false }) {
         )}
 
         <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5">
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowQuickView(true); }}
-            aria-label="Quick view"
-            title="Quick View"
-            className="h-8 w-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow hover:scale-110 transition-transform text-gray-500"
-          >
-            <FaEye size={13} />
-          </button>
-          <button
-            onClick={handleCompareToggle}
-            aria-label={comparing ? "Remove from compare" : "Add to compare"}
-            aria-pressed={comparing}
-            title="Compare"
-            className={`h-8 w-8 rounded-full flex items-center justify-center backdrop-blur-sm shadow hover:scale-110 transition-transform ${
-              comparing ? "bg-theme-primary text-white" : "bg-white/90 text-gray-500"
-            }`}
-          >
-            {comparing ? <FaCheck size={12} /> : <span className="h-3 w-3 rounded-sm border-2 border-current" />}
-          </button>
+          {/* Session 6 (user-reported: "Campaign products don't have any
+              wishlist option"). Confirmed by reading this file: only
+              Quick View + Compare existed here, unlike ProductCard.jsx's
+              identical corner stack, which leads with WishlistButton.
+              Dropped in as-is — it's already fully self-contained
+              (own login-redirect, optimistic update, demo-mode handling)
+              — same position (first) and same `variant="floating"` style
+              ProductCard.jsx uses, so campaign cards now match every
+              other product card site-wide instead of being the one
+              place missing it.
+              Quick View + Compare now moved behind the SAME `hidden
+              sm:flex` gate ProductCard.jsx uses for this exact 3-button
+              -on-a-narrow-card situation (see that file's own comment for
+              the full reasoning: 3 stacked 32px buttons vs. a ~136-176px
+              -wide card on the smallest screens). The comment just below,
+              from before this button existed, specifically said both
+              buttons "show always... has no existing wishlist button
+              competing for the corner" — that was true with 2 buttons,
+              no longer true with 3, so the same fix ProductCard already
+              needed for this applies here now too. */}
+          <WishlistButton productId={product._id} variant="floating" size={13} />
+          <div className="hidden sm:flex sm:flex-col gap-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowQuickView(true); }}
+              aria-label="Quick view"
+              title="Quick View"
+              className="h-8 w-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow hover:scale-110 transition-transform text-gray-500"
+            >
+              <FaEye size={13} />
+            </button>
+            <button
+              onClick={handleCompareToggle}
+              aria-label={comparing ? "Remove from compare" : "Add to compare"}
+              aria-pressed={comparing}
+              title="Compare"
+              className={`h-8 w-8 rounded-full flex items-center justify-center backdrop-blur-sm shadow hover:scale-110 transition-transform ${
+                comparing ? "bg-theme-primary text-white" : "bg-white/90 text-gray-500"
+              }`}
+            >
+              {comparing ? <FaCheck size={12} /> : <span className="h-3 w-3 rounded-sm border-2 border-current" />}
+            </button>
+          </div>
         </div>
       </div>
       <div className="p-3 space-y-1.5">
@@ -144,7 +190,7 @@ function CampaignProductCard({ item, badgeColor, gridMode = false }) {
 }
 
 // Section 9 (Performance): CampaignProductCard is a list item (rendered via
-// .map() inside HorizontalScroll below) — same reasoning as ProductCard's
+// .map() inside ProductGridOrScroll below) — same reasoning as ProductCard's
 // own memo() wrap.
 const MemoCampaignProductCard = memo(CampaignProductCard);
 
@@ -261,35 +307,25 @@ function CampaignSection({ campaign }) {
           Picks"/"Best Selling" report (that one really was a content
           question — campaign.products itself only had 2 entries, and
           this component has no slice/limit anywhere, confirmed by
-          reading it directly). This time the products list can be
-          small AND the fixed-width scroll-row card sizing (w-44/w-52)
-          is exactly what leaves a large unfilled gap when there aren't
-          enough items to need scrolling — that part IS a genuine layout
-          bug, independent of how many products any given campaign
-          actually has. Fix: below a small-enough count, render as a
-          responsive GRID (cards naturally fill their cell — always
-          "looks full" regardless of viewport width) instead of the
-          fixed-width scroll row; only switch to the scroll pattern once
-          there are genuinely more products than fit in one row, where
-          horizontal scroll is the correct, expected way to reach the
-          rest rather than a symptom of a layout gap. 5 is the grid's
-          widest column count (lg:grid-cols-5) — chosen so the grid
-          threshold and the grid's own max density line up, rather than
-          picking two unrelated numbers. */}
+          reading it directly).
+          Session 5: the fix Phase 12 shipped here (a fixed `lg:grid-cols-5`
+          grid below a count threshold) turned out to have its own residual
+          gap — a fixed column count still leaves empty cells whenever the
+          item count doesn't divide evenly into the active breakpoint's
+          column count (e.g. 2 items in a 5-column row = 3 dead cells),
+          which is exactly what a fresh round of screenshots showed. Now
+          routed through the shared `ProductGridOrScroll` (see that file
+          for the full reasoning), which uses CSS Grid's `auto-fit` to
+          provably guarantee a full-looking row for any item count, not
+          just breakpoints someone happened to hand-pick. */}
       <div className="p-4 bg-[var(--color-bg)]">
-        {products.length <= 5 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-            {products.map((item, i) => (
-              <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} gridMode />
-            ))}
-          </div>
-        ) : (
-          <HorizontalScroll autoScroll autoScrollSpeed={35}>
-            {products.map((item, i) => (
-              <MemoCampaignProductCard key={i} item={item} badgeColor={campaign.badgeColor} />
-            ))}
-          </HorizontalScroll>
-        )}
+        <ProductGridOrScroll
+          items={products}
+          getKey={(item, i) => (item.productId?._id || item.productId || i)}
+          renderItem={(item) => <MemoCampaignProductCard item={item} badgeColor={campaign.badgeColor} />}
+          autoScroll
+          autoScrollSpeed={35}
+        />
       </div>
     </section>
   );

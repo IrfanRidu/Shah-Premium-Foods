@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { FaShareAlt, FaCopy } from "react-icons/fa";
 import toast from "react-hot-toast";
+import { useGlobalContext } from "@/providers/GlobalProvider";
 
 // Session 4 (Luxury PDP redesign). Matches WishlistButton's `variant=
 // "inline"` styling exactly (same `.icon-btn` class, same `border
@@ -16,8 +17,19 @@ import toast from "react-hot-toast";
 // package's earliest releases, so the actual risk is low — but this is
 // a judgment call, not a verified fact the way this session's other
 // icon choices were (all cross-checked against real existing usage).
-export default function ShareButton({ url, title, className = "" }) {
+//
+// Session 8 (recommendation engine) — `productId`/`categoryId` are new,
+// optional props (this button is also usable without them — a bare
+// share of the current page — so both are only used if actually passed
+// in). Logged only on CONFIRMED success (after `navigator.share`
+// resolves without throwing, or after the clipboard copy actually
+// succeeds) — the existing catch block already distinguishes "person
+// cancelled the native share sheet" (AbortError, silently ignored, no
+// toast) from a real failure; a cancelled share is not a real interest
+// signal and correctly logs nothing either.
+export default function ShareButton({ url, title, productId, categoryId, className = "" }) {
   const [copied, setCopied] = useState(false);
+  const { logActivity } = useGlobalContext();
 
   const handleShare = async (e) => {
     e?.stopPropagation();
@@ -29,9 +41,11 @@ export default function ShareButton({ url, title, className = "" }) {
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title, url: shareUrl });
+        if (productId) logActivity?.("product_share", { productId, categoryId });
       } catch {
         // AbortError when the person just cancels the native share
-        // sheet — not a real failure, nothing to show for it.
+        // sheet — not a real failure, nothing to show for it, and
+        // correctly not logged as a share either.
       }
       return;
     }
@@ -40,6 +54,7 @@ export default function ShareButton({ url, title, className = "" }) {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       toast.success("Link copied");
+      if (productId) logActivity?.("product_share", { productId, categoryId });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("Couldn't copy the link");

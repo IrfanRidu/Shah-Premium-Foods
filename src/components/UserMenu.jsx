@@ -11,6 +11,7 @@ import api from "@/lib/api";
 import { logout } from "@/store/userSlice";
 import { resetCart } from "@/store/cartSlice";
 import { clearPermissions } from "@/store/permissionsSlice";
+import { openWishlistDrawer } from "@/store/uiSlice";
 import { isSuperAdmin, isDemoAdmin, isEmployeeRole } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -19,11 +20,17 @@ import toast from "react-hot-toast";
 // instead (dashboard/profile/page.jsx), so this list stays short exactly
 // the way the spec asked: My Profile, My Orders, Submit Shopping List,
 // Wishlist.
+// Session 5: Wishlist's `href` is kept (not removed) — it's still a real,
+// working page, and this exact link is what a keyboard user / screen
+// reader / "open in new tab" middle-click still needs to work normally.
+// `action: "wishlist"` is checked at render time instead to ALSO open the
+// drawer on a normal left-click, same "faster path, not a replacement"
+// reasoning as the header icon's own comment.
 const MENU = [
   { href: "/dashboard/profile",      label: "My Profile",           icon: FaUser },
   { href: "/dashboard/myorders",     label: "My Orders",            icon: FaBox },
   { href: "/dashboard/submit-list",  label: "Submit Shopping List", icon: FaFileAlt },
-  { href: "/dashboard/wishlist",     label: "Wishlist",             icon: FaHeart },
+  { href: "/dashboard/wishlist",     label: "Wishlist",             icon: FaHeart, action: "wishlist" },
 ];
 
 // The dropdown used to dump all ~15 individual admin routes straight in
@@ -82,8 +89,22 @@ export default function UserMenu({ close }) {
       </div>
 
       <div className="py-1">
-        {MENU.map(({ href, label, icon: Icon }) => (
-          <Link key={href} href={href} onClick={close}
+        {MENU.map(({ href, label, icon: Icon, action }) => (
+          <Link
+            key={href}
+            href={href}
+            onClick={(e) => {
+              // Session 5: a plain left-click opens the drawer in place
+              // instead of navigating; a modified click (middle-click,
+              // ctrl/cmd+click — "open in new tab") is left completely
+              // alone so it still opens the real /dashboard/wishlist page
+              // normally, same as any other link on the site would.
+              if (action === "wishlist" && e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                e.preventDefault();
+                dispatch(openWishlistDrawer());
+              }
+              close?.();
+            }}
             className="flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--color-border)] transition-colors">
             <Icon className="text-theme-muted" size={14} />
             {label}

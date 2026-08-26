@@ -11,6 +11,7 @@ import couponReducer from "./couponSlice";
 import currencyReducer from "./currencySlice";
 import activityReducer from "./activitySlice";
 import permissionsReducer from "./permissionsSlice";
+import uiReducer from "./uiSlice";
 import { persistMiddleware } from "./localStorageMiddleware";
 
 // Fix (hydration crash, "Expected server HTML to contain a matching <img> in
@@ -45,6 +46,7 @@ export const store = configureStore({
     currency:     currencyReducer,
     activity:     activityReducer,
     permissions:  permissionsReducer,
+    ui:           uiReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({ serializableCheck: false }).concat(persistMiddleware),

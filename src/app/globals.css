@@ -477,6 +477,65 @@
     .modal-box { padding: 1.25rem; border-radius: 1rem; }
   }
 
+  /* ─── Slide-out drawer (Session 5 — Cart/Wishlist) ────────────
+     Right-anchored sibling of .modal-overlay/.modal-box above: same
+     fixed-inset backdrop, but the panel is pinned to the right edge and
+     slides in horizontally instead of fading/rising in centered. Reused
+     by CartDrawer.jsx and WishlistDrawer.jsx so both share one visual
+     language instead of two hand-built variants.
+     Session 7 (user-reported: "appearing so fast without any smooth
+     sliding animation"). Checked first for an actual bug (this CSS
+     really is inside @layer components, correctly ordered ahead of
+     Tailwind's utilities; no prefers-reduced-motion override anywhere
+     in this file suppressing it; the JSX applies nothing else that
+     would fight the animation/transform properties here) — found none,
+     so this is a genuine tuning issue, not a broken rule. The original
+     280ms used cubic-bezier(.22,1,.36,1), a curve that front-loads
+     almost all of its visible motion into roughly the first half of
+     the duration and spends the rest barely moving — combined with a
+     short duration, that reads as "pops in, then does something
+     invisible" rather than an evenly-paced slide. Duration raised to
+     380ms and switched to cubic-bezier(0.16,1,0.3,1), a well
+     -established, evenly-decelerating "ease out" used by several
+     production panel/drawer implementations specifically for this
+     "glides in, settles smoothly" feel rather than a fast-then-frozen
+     one. The backdrop's own fade (below) brought closer to the same
+     ballpark (200ms→260ms) so the two don't feel like two separate,
+     mistimed motions. */
+  .drawer-overlay {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0,0,0,0.45);
+    display: flex; justify-content: flex-end;
+    animation: fadeIn 0.26s ease;
+  }
+  .drawer-panel {
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    width: 100%;
+    max-width: 26rem; /* 416px */
+    height: 100%;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    animation: slideInRight 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: -8px 0 24px rgba(0,0,0,0.15);
+  }
+  /* Closing state — same reasoning, other direction: an instant vanish
+     right after a smooth slide-in would itself feel inconsistent with
+     "smooth." `forwards` holds the animation's END state (fully
+     transparent / fully off-screen) for the brief window between the
+     animation finishing and the component actually unmounting (see
+     CartDrawer.jsx/WishlistDrawer.jsx's onAnimationEnd handling), so
+     there's no flash back to the visible state in between. Exit uses an
+     "accelerate" curve (starts slow, speeds up) rather than the enter's
+     "decelerate" one — standard motion-design convention: elements
+     arriving should ease to a gentle stop, elements leaving should
+     get out of the way promptly — and runs slightly shorter (300ms vs
+     380ms) for the same "leaving should feel quicker than arriving"
+     reason. */
+  .drawer-overlay-closing { animation: fadeOut 0.24s ease forwards; }
+  .drawer-panel-closing   { animation: slideOutRight 0.3s cubic-bezier(0.4, 0, 1, 1) forwards; }
+
   /* ─── Carousel dots ─────────────────────────────────────────── */
   .carousel-dot {
     height: 6px; border-radius: 9999px; transition: all 0.25s;
@@ -581,7 +640,10 @@
   100% { background-position: -200% 0; }
 }
 @keyframes fadeIn  { from { opacity:0 } to { opacity:1 } }
+@keyframes fadeOut { from { opacity:1 } to { opacity:0 } }
 @keyframes slideUp { from { opacity:0; transform:translateY(16px) } to { opacity:1; transform:translateY(0) } }
+@keyframes slideInRight  { from { transform:translateX(100%) } to { transform:translateX(0) } }
+@keyframes slideOutRight { from { transform:translateX(0) } to { transform:translateX(100%) } }
 @keyframes marquee {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }

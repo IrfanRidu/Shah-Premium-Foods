@@ -9,6 +9,7 @@ import {
   getNeverSoldProductsController,
   getAllTimeBestSellingController,
   getOverviewStatsController,
+  getHomepageRowsController,
 } from "@/server/controllers/analytics.controller";
 import {
   getAnalyticsSettingsController,
@@ -33,6 +34,13 @@ const ROUTES = {
   "GET:/low-selling":  [[], getLowSellingProductsController],
   "GET:/never-sold":   [[], getNeverSoldProductsController],
   "GET:/all-time-best":[[], getAllTimeBestSellingController],
+  // Session 6 (performance): homepage now calls this ONE endpoint
+  // instead of the 5 above individually — same 5 queries, run
+  // concurrently server-side via Promise.all, one response. The 5
+  // individual routes above are kept exactly as they were (unchanged
+  // URL, unchanged response shape) for anything else that might still
+  // call them directly — this is an addition, not a replacement.
+  "GET:/homepage-rows":[[], getHomepageRowsController],
 
   "GET:/settings":     [[auth, checkPermission("analytics", "view")], getAnalyticsSettingsController],
   "PUT:/settings":     [[auth, checkPermission("analytics", "edit")], updateAnalyticsSettingsController],

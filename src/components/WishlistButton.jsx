@@ -8,6 +8,7 @@ import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { addWishlistItem, removeWishlistItemByProductId } from "@/store/wishlistSlice";
 import { axiosToastError } from "@/lib/utils";
+import { useGlobalContext } from "@/providers/GlobalProvider";
 
 // Shared by ProductCard.jsx (floating over the product image) and the PDP
 // purchase panel (inline, next to Add to Cart) — one toggle button, one
@@ -26,6 +27,7 @@ export default function WishlistButton({ productId, variant = "floating", size =
   const router = useRouter();
   const userId = useSelector((s) => s.user._id);
   const wishlistItems = useSelector((s) => s.wishlist.wishlistItems);
+  const { logActivity } = useGlobalContext();
   const [pending, setPending] = useState(false);
 
   const isWishlisted = wishlistItems.some((w) => w.productId?._id === productId);
@@ -49,6 +51,20 @@ export default function WishlistButton({ productId, variant = "floating", size =
     try {
       await Axios({ ...api.toggleWishlist, data: { productId } });
       toast.success(wasWishlisted ? "Removed from wishlist" : "Added to wishlist");
+      // Session 8 (recommendation engine) — first real write path for
+      // wishlist_add/wishlist_remove; the schema enum had a generic
+      // `wishlist` value before this that no code anywhere ever actually
+      // wrote (confirmed via grep). Split add vs. remove because they're
+      // opposite-sign signals for preference purposes — logged only on
+      // CONFIRMED success (after the API call, not the optimistic update
+      // above), matching AddToCartButton.jsx's own same pattern, so a
+      // failed/reverted toggle never gets counted as real signal. No
+      // categoryId here — this component only receives a bare `productId`
+      // prop, not the full product — acceptable since ActivityLogModel's
+      // categoryId is optional by design; category-level affinity (Phase
+      // 3+) can resolve it from productId at aggregation time instead of
+      // requiring every event to carry a denormalized copy.
+      logActivity?.(wasWishlisted ? "wishlist_remove" : "wishlist_add", { productId });
     } catch (err) {
       // Revert the optimistic update on a real failure
       if (wasWishlisted) dispatch(addWishlistItem({ _id: `optimistic-${productId}`, productId: { _id: productId } }));

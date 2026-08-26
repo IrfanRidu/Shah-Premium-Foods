@@ -2,6 +2,7 @@ import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import UserModel from "../models/user.model.js";
 import AddressModel from "../models/address.model.js";
+import ActivityLogModel from "../models/activityLog.model.js";
 import sendEmail from "../config/sendEmail.js";
 import verifyEmailTemplate from "../utils/verifyEmailTemplete.js";
 import forgotPasswordTemplate from "../utils/forgetPasswordTemplete.js";
@@ -239,7 +240,7 @@ export const resendVerificationOtpController = async (req, res) => {
 // accounts WITH it enabled (called only after the emailed code is
 // confirmed). Both need to finish a login exactly the same way; this
 // exists so that finishing sequence is defined once, not duplicated.
-async function completeLogin(user, req, res) {
+async function completeLogin(user, req, res, sessionId) {
   // Note: recordSuccessfulLogin() is NOT called here — it already ran at
   // the point the PASSWORD was verified correct, in loginUserController,
   // which is the semantically right place for it regardless of whether
@@ -258,6 +259,32 @@ async function completeLogin(user, req, res) {
     { _id: user._id },
     { last_login_date: new Date() }
   );
+
+  // Session 8 (recommendation engine, spec Section 6: "If the guest later
+  // logs in, merge relevant session behaviour into the authenticated
+  // user's behaviour history"). Both real login-completion paths funnel
+  // through this one function (see this function's own header comment),
+  // so this single hook covers both. The "merge" is a re-attribution, not
+  // a copy: every ActivityLogModel entry that was logged under this exact
+  // guest sessionId while userId was still null gets its userId set to
+  // the account that just signed in — from that moment on, every query
+  // that reads "this user's behaviour" (Phase 3's preference/affinity
+  // calculation, already-existing getSuggestionsController/
+  // getRecentlyViewedController, etc.) naturally includes what they did
+  // before logging in too, with no separate merge-aware code needed
+  // anywhere else. Deliberately non-fatal, same established pattern as
+  // the attendance auto-check-in just below: a person's browsing history
+  // failing to carry over must never be the reason they can't sign in.
+  if (sessionId) {
+    try {
+      await ActivityLogModel.updateMany(
+        { sessionId, userId: null },
+        { $set: { userId: user._id } }
+      );
+    } catch (err) {
+      console.error("[completeLogin] guest session activity merge failed (non-fatal):", err.message);
+    }
+  }
 
   // Advanced HRMS Features spec: "Browser Login" is one of the
   // attendance methods in its own right. Awaited (not fire-and-forget)
@@ -301,7 +328,7 @@ async function completeLogin(user, req, res) {
 // LOGIN
 export const loginUserController = async (req, res) => {
   try {
-    const { password } = req.body;
+    const { password, sessionId } = req.body;
     const email = req.body.email?.trim().toLowerCase();
 
     if (!email || !password) {
@@ -408,7 +435,7 @@ export const loginUserController = async (req, res) => {
       });
     }
 
-    return completeLogin(user, req, res);
+    return completeLogin(user, req, res, sessionId);
   } catch (error) {
     return res.status(500).json({
       message: error.message || "Internal server error",
@@ -425,7 +452,7 @@ export const loginUserController = async (req, res) => {
 // `requiresTwoFactor`, show a code-entry screen → submit that here.
 export const verifyLoginOtpController = async (req, res) => {
   try {
-    const { otp } = req.body;
+    const { otp, sessionId } = req.body;
     const email = req.body.email?.trim().toLowerCase();
 
     const user = await UserModel.findOne({ email });
@@ -442,7 +469,7 @@ export const verifyLoginOtpController = async (req, res) => {
 
     await UserModel.updateOne({ _id: user._id }, { login_otp: null, login_otp_expiry: null });
 
-    return completeLogin(user, req, res);
+    return completeLogin(user, req, res, sessionId);
   } catch (error) {
     return res.status(500).json({
       message: error.message || "Internal server error",

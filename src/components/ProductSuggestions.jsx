@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import ProductCard from "./ProductCard";
-import HorizontalScroll from "./HorizontalScroll";
+import ProductGridOrScroll from "./ProductGridOrScroll";
 
 // Extracted unchanged from the old product/[product]/page.jsx. Stays
 // client-fetched deliberately, not folded into the server-rendered part of
@@ -23,29 +23,18 @@ export default function ProductSuggestions({ productId }) {
 
   if (suggestions.length === 0) return null;
 
-  // Phase 12: same adaptive fix as CampaignSection.jsx — few items fill a
-  // proper responsive grid row instead of leaving a large empty gap in a
-  // fixed-width scroll row; more items use the scroll pattern, where
-  // that's the correct, expected way to browse further rather than a
-  // symptom of unfilled space.
+  // Session 5: routed through the shared ProductGridOrScroll — Phase 12's
+  // own fixed grid-cols-5 attempt at this same fix still left empty cells
+  // whenever the count didn't divide evenly into the active breakpoint
+  // (e.g. 2 items in a 5-col row); the shared component's auto-fit grid
+  // provably guarantees a full-looking row for any item count instead.
   return (
     <section>
       <h2 className="section-heading text-xl mb-4">You May Also Like</h2>
-      {suggestions.length <= 5 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-          {suggestions.map((p) => (
-            <ProductCard key={p._id} product={p} />
-          ))}
-        </div>
-      ) : (
-        <HorizontalScroll>
-          {suggestions.map((p) => (
-            <div key={p._id} className="shrink-0 w-44 sm:w-52">
-              <ProductCard product={p} />
-            </div>
-          ))}
-        </HorizontalScroll>
-      )}
+      <ProductGridOrScroll
+        items={suggestions}
+        renderItem={(p) => <ProductCard product={p} />}
+      />
     </section>
   );
 }

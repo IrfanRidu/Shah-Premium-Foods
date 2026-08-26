@@ -7,6 +7,7 @@ import { displayPrice, priceWithDiscount, validURLConvert } from "@/lib/utils";
 import { getCampaignIcon } from "@/lib/campaignIcons";
 import { selectCampaignByProductIdMap } from "@/store/campaignSelectors";
 import { useCompare } from "@/hooks/useCompare";
+import { useGlobalContext } from "@/providers/GlobalProvider";
 import SafeImage from "./SafeImage";
 import AddToCartButton from "./AddToCartButton";
 import WishlistButton from "./WishlistButton";
@@ -25,6 +26,7 @@ import toast from "react-hot-toast";
 // the header) no longer needlessly re-renders every card on the page.
 function ProductCard({ product }) {
   const router    = useRouter();
+  const { logActivity } = useGlobalContext();
   const currency  = useSelector((s) => s.currency.selected);
   const rates     = useSelector((s) => s.currency.rates);
   // Section 9 (Performance): O(1) lookup from a selector memoized against
@@ -67,7 +69,20 @@ function ProductCard({ product }) {
 
   return (
     <div
-      onClick={() => router.push(`/product/${validURLConvert(product.name, product._id)}`)}
+      onClick={() => {
+        // Session 8 (recommendation engine) — distinct from the existing
+        // `view` event (ProductPurchasePanel.jsx, fires once the FULL PDP
+        // mounts). This captures click INTENT at the moment of the click
+        // itself — a real signal even if the user navigates back before
+        // the PDP finishes loading, which `view` alone would miss
+        // entirely. Fire-and-forget, same as every other logActivity call
+        // site; doesn't block or delay the navigation itself.
+        logActivity?.("product_click", {
+          productId: product._id,
+          categoryId: product.category?.[0]?._id || product.category?.[0],
+        });
+        router.push(`/product/${validURLConvert(product.name, product._id)}`);
+      }}
       className="product-card cursor-pointer group h-full"
     >
       {/* ── Image ── */}

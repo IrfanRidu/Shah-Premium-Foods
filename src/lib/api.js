@@ -113,6 +113,10 @@ const api = {
   getLowSelling:         { url: "/api/analytics/low-selling",    method: "get"  },
   getNeverSold:          { url: "/api/analytics/never-sold",     method: "get"  },
   getAllTimeBest:         { url: "/api/analytics/all-time-best",  method: "get"  },
+  // Session 6 (performance) — combines the 5 above into one request.
+  getHomepageRows:        { url: "/api/analytics/homepage-rows",  method: "get"  },
+  // Session 8, Phase 8 — the new personalized recommendation system.
+  getHomepageRecommendations: { url: "/api/recommendations/homepage", method: "get" },
   // Inventory
   getInventory:          { url: "/api/inventory/list",           method: "get"  },
   adjustStock:           { url: "/api/inventory/adjust",         method: "post" },

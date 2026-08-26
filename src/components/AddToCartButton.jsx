@@ -56,6 +56,20 @@ export default function AddToCartButton({ product, initialQty = 1 }) {
       if (newQty <= 0) {
         await Axios({ ...api.deleteCartItem, data: { _id: cartItem._id } });
         dispatch(removeCartItem(cartItem._id));
+        // Session 8 (recommendation engine) — this is the ONE shared
+        // removal path in the whole app (ProductCard's quick-add stepper,
+        // cart/page.jsx, and CartDrawer.jsx all render THIS SAME
+        // component for their line items, none has its own separate
+        // remove button/logic — confirmed via grep). A negative-weight
+        // signal for preference purposes, distinct from add_to_cart —
+        // logged with the quantity that was actually removed (captured
+        // before the delete, from `cartItem.quantity` — it's gone from
+        // Redux/the DB immediately after).
+        logActivity?.("remove_from_cart", {
+          productId: product._id,
+          categoryId: product.category?.[0]?._id || product.category?.[0],
+          metadata: { quantity: cartItem.quantity },
+        });
         return;
       }
       const r = await Axios({ ...api.updateCartItemQty, data: { _id: cartItem._id, qty: newQty } });

@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSelector } from "react-redux";
-import { FaTruck, FaUndo, FaShieldAlt } from "react-icons/fa";
+import { FaTruck } from "react-icons/fa";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { displayPrice } from "@/lib/utils";
+import ReturnsQualityInfo from "./ReturnsQualityInfo";
 
 // Session 4 (Luxury PDP redesign) — "Delivery information / Warranty
 // details / Return policy" from the brief. Delivery is REAL data (the
@@ -40,9 +41,19 @@ export default function DeliveryInfo() {
     return () => { cancelled = true; };
   }, []);
 
+  // Session 5 (user-reported, with screenshot: "the delivery section is
+  // smaller than the other section — both section must be equal in
+  // size"). Root cause traced to the PARENT grid in product/[product]/
+  // page.jsx using `items-start`, so this card never stretched to match
+  // the taller Purchase-panel card beside it — see that file's own
+  // comment for the other half of this fix. `h-full` here is what lets
+  // this card actually CONSUME the extra height once the parent starts
+  // stretching it; `flex flex-col` + `flex-1` on each of the 3 rows below
+  // spreads that extra height evenly across Delivery/Returns/Quality
+  // Assurance instead of it bunching up as one dead gap at the bottom.
   return (
-    <div className="rounded-2xl border border-theme divide-y divide-[var(--color-border)] overflow-hidden">
-      <div className="flex items-start gap-3 p-3.5">
+    <div className="rounded-2xl border border-theme divide-y divide-[var(--color-border)] overflow-hidden h-full flex flex-col">
+      <div className="flex items-start gap-3 p-3.5 flex-1">
         <FaTruck className="text-theme-primary shrink-0 mt-0.5" size={16} aria-hidden="true" />
         <div className="min-w-0">
           <p className="text-sm font-semibold">Delivery</p>
@@ -65,22 +76,7 @@ export default function DeliveryInfo() {
           )}
         </div>
       </div>
-      <div className="flex items-start gap-3 p-3.5">
-        <FaUndo className="text-theme-primary shrink-0 mt-0.5" size={15} aria-hidden="true" />
-        <div>
-          <p className="text-sm font-semibold">Returns</p>
-          <p className="text-xs text-theme-muted mt-0.5">
-            Something wrong with your order? Contact our support team and we&apos;ll help make it right.
-          </p>
-        </div>
-      </div>
-      <div className="flex items-start gap-3 p-3.5">
-        <FaShieldAlt className="text-theme-primary shrink-0 mt-0.5" size={15} aria-hidden="true" />
-        <div>
-          <p className="text-sm font-semibold">Quality Assurance</p>
-          <p className="text-xs text-theme-muted mt-0.5">Every order is checked for freshness and quality before it ships.</p>
-        </div>
-      </div>
+      <ReturnsQualityInfo />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { getSubCategoryPageData } from "@/server/data/subcategory";
 import { validURLConvert } from "@/lib/slug";
 import ProductCard from "@/components/ProductCard";
 import NoData from "@/components/NoData";
+import CategoryViewTracker from "@/components/CategoryViewTracker";
 
 export const revalidate = 300;
 
@@ -74,6 +75,7 @@ export default async function SubCategoryProductPage({ params }) {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 lg:py-8">
+      <CategoryViewTracker categoryId={category._id} subCategoryId={subCategory._id} />
       <script
         nonce={nonce}
         type="application/ld+json"

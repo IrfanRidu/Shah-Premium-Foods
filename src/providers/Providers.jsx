@@ -5,6 +5,8 @@ import { store } from "@/store/store";
 import GlobalProvider from "./GlobalProvider";
 import DemoModeNotice from "@/components/DemoModeNotice";
 import CompareBar from "@/components/CompareBar";
+import CartDrawer from "@/components/CartDrawer";
+import WishlistDrawer from "@/components/WishlistDrawer";
 
 export default function Providers({ children, hasSessionHint = false }) {
   return (
@@ -13,6 +15,15 @@ export default function Providers({ children, hasSessionHint = false }) {
         {children}
         <DemoModeNotice />
         <CompareBar />
+        {/* Session 5 — Cart/Wishlist slide-out drawers. Mounted once here,
+            same established pattern as DemoModeNotice/CompareBar above:
+            both read their "am I open" state from the new `ui` Redux
+            slice (uiSlice.js) so ANY component anywhere (Header's icons,
+            the account dropdown, mobile menu) can open either one just by
+            dispatching an action, without needing to be an ancestor of
+            whichever page happens to be showing. */}
+        <CartDrawer />
+        <WishlistDrawer />
         <Toaster
           position="top-center"
           containerStyle={{

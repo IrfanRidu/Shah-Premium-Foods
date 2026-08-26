@@ -160,7 +160,7 @@ export default async function ProductPage({ params }) {
             {/* Session 4: Share — placed here (not inside
                 ProductPurchasePanel's desktop-only CTA row) specifically
                 so it's reachable at every screen size, not just lg: up. */}
-            <ShareButton title={product.name} className="border border-theme shrink-0" />
+            <ShareButton title={product.name} productId={product._id} categoryId={product.category?.[0]?._id || product.category?.[0]} className="border border-theme shrink-0" />
           </div>
 
           <h1 className="font-display text-2xl md:text-3xl font-bold leading-snug">{product.name}</h1>
@@ -199,8 +199,23 @@ export default async function ProductPage({ params }) {
               out to wrap in a way that looked cramped rather than clean
               at this column's real width; see ProductPurchasePanel.jsx
               for the actual button-layout fix (stacked instead of
-              wrapped). */}
-          <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-4 lg:space-y-0">
+              wrapped).
+              Session 5 (user-reported, with screenshot: "the delivery
+              section is smaller than the other section — both section
+              must be equal in size"): this was `lg:items-start`, which
+              lets grid columns size to their OWN content height instead
+              of matching each other — Purchase panel (price+stock+qty
+              row+2 stacked buttons) naturally runs taller than Delivery
+              info (3 compact rows), so the Delivery card was sizing
+              itself short and just sitting at the top of the row with
+              dead space below, never actually matching its neighbor.
+              Dropped `items-start` (default is stretch) so both columns
+              now match the taller one's height; DeliveryInfo.jsx's own
+              root is `h-full flex flex-col` with each of its 3 rows
+              `flex-1` so that extra height distributes evenly across
+              Delivery/Returns/Quality-Assurance instead of collapsing
+              into one gap at the bottom of a still-short card. */}
+          <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-stretch space-y-4 lg:space-y-0">
             <div className="lg:bg-theme-surface lg:border lg:border-theme lg:rounded-2xl lg:p-5 lg:shadow-sm">
               <ProductPurchasePanel product={product} />
             </div>

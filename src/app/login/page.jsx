@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useForm } from "react-hook-form";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Axios from "@/lib/axios";
@@ -23,6 +23,7 @@ export default function LoginPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm();
   const dispatch = useDispatch();
   const router   = useRouter();
+  const sessionId = useSelector((s) => s.activity.sessionId);
   const { fetchCartItems, fetchAddress } = useGlobalContext();
 
   // Security hardening: this form always submits via handleSubmit (which
@@ -60,7 +61,15 @@ export default function LoginPage() {
 
   const onSubmit = async (data) => {
     try {
-      const r = await Axios({ ...api.login, data });
+      // Session 8 (recommendation engine, spec Section 6: "If the guest
+      // later logs in, merge relevant session behaviour into the
+      // authenticated user's behaviour history"). sessionId tags along
+      // with the credentials themselves — completeLogin (server side)
+      // re-attributes this session's already-logged, still-guest
+      // (userId:null) activity to the now-known user the moment login
+      // actually finishes, so browsing that happened before signing in
+      // isn't lost/orphaned from that point on.
+      const r = await Axios({ ...api.login, data: { ...data, sessionId } });
       if (r.data?.success) {
         if (r.data.data?.requiresTwoFactor) {
           setPendingOtpEmail(r.data.data.email);
@@ -77,7 +86,11 @@ export default function LoginPage() {
     if (!otp.trim()) return;
     try {
       setVerifyingOtp(true);
-      const r = await Axios({ ...api.verifyLoginOtp, data: { email: pendingOtpEmail, otp: otp.trim() } });
+      // Same reasoning as onSubmit above — this is the OTHER path that
+      // reaches completeLogin (2FA-enabled accounts), a separate HTTP
+      // request from the original login attempt, so sessionId needs to
+      // be resent here too rather than assumed to carry over.
+      const r = await Axios({ ...api.verifyLoginOtp, data: { email: pendingOtpEmail, otp: otp.trim(), sessionId } });
       if (r.data?.success) await finishLoginOnClient(r.data.data);
     } catch (err) { axiosToastError(err); }
     finally { setVerifyingOtp(false); }

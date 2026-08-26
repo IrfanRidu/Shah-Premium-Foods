@@ -61,7 +61,21 @@ export const getActiveCampaignsController = async (req, res) => {
           endTime: { $gte: now },
         })
           .sort({ displayOrder: 1, createdAt: -1 })
-          .populate({ path: "products.productId", select: "name image price discount unit stock publish sku" });
+          // Session 7 (user-reported: "quick view section of campaigns are
+          // not displaying like that [full PDP-parity info]"). Root cause:
+          // QuickView.jsx (Session 5) reads product.category, subCategory,
+          // description, more_details, rating, numReviews, and
+          // lowStockThreshold — none of which were in this select string,
+          // so a campaign product opened in Quick View silently rendered
+          // with those fields undefined (blank Specifications section, no
+          // badges, generic stock badge) while a REGULAR product's Quick
+          // View (which receives the fully-populated product from
+          // elsewhere) showed everything correctly. Same QuickView
+          // component both times — the DATA reaching it differed. Added
+          // every field QuickView.jsx actually reads; verified each name
+          // against product.model.js's real schema fields rather than
+          // guessing.
+          .populate({ path: "products.productId", select: "name image price discount unit stock publish sku category subCategory description more_details rating numReviews lowStockThreshold" });
 
         return campaigns.map((c) => ({
           ...c.toObject(),

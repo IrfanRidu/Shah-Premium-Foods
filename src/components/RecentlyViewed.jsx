@@ -4,7 +4,7 @@ import { useSelector } from "react-redux";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import ProductCard from "./ProductCard";
-import HorizontalScroll from "./HorizontalScroll";
+import ProductGridOrScroll from "./ProductGridOrScroll";
 
 // Session 4 (Luxury PDP redesign). `getRecentlyViewedController` and
 // `api.getRecentlyViewed` already existed, fully built, unused by any
@@ -35,25 +35,16 @@ export default function RecentlyViewed({ excludeProductId }) {
 
   if (products.length === 0) return null;
 
-  // Phase 12: same adaptive fix as CampaignSection.jsx / ProductSuggestions.jsx.
+  // Session 5: routed through the shared ProductGridOrScroll — see that
+  // file, and ProductSuggestions.jsx's matching comment, for why the
+  // Phase 12 fixed-grid-cols-5 attempt at this still had a residual gap.
   return (
     <section>
       <h2 className="section-heading text-xl mb-4">Recently Viewed</h2>
-      {products.length <= 5 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-          {products.map((p) => (
-            <ProductCard key={p._id} product={p} />
-          ))}
-        </div>
-      ) : (
-        <HorizontalScroll>
-          {products.map((p) => (
-            <div key={p._id} className="shrink-0 w-44 sm:w-52">
-              <ProductCard product={p} />
-            </div>
-          ))}
-        </HorizontalScroll>
-      )}
+      <ProductGridOrScroll
+        items={products}
+        renderItem={(p) => <ProductCard product={p} />}
+      />
     </section>
   );
 }
