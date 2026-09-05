@@ -6,7 +6,7 @@ import RoleModel from "../models/role.model.js";
 import { EmployeeModel } from "../models/employee.model.js";
 import SupportTicketModel from "../models/supportTicket.model.js";
 import ProductRequestModel from "../models/productRequest.model.js";
-import { AVAILABILITY_FILTER, HOT_DEAL_MIN_DISCOUNT } from "@/lib/recommendationConfig";
+import { AVAILABILITY_FILTER, HOT_DEAL_MIN_DISCOUNT, MIN_HOMEPAGE_ROW_SIZE, HOMEPAGE_BACKFILL_POOL_SIZE } from "@/lib/recommendationConfig";
 
 const parseDate = (d) => (d ? new Date(d) : null);
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
@@ -313,6 +313,47 @@ export const getAllTimeBestSellingController = async (req, res) => {
 // overhead instead of 5; nothing about what's queried or how it's
 // filtered/sorted/limited changes — this is purely fewer trips to fetch
 // the exact same data. See page.jsx for the frontend side of this.
+// [ADDED] Same minimum-row-size backfill concept as
+// homepageRecommendationService.js's backfillHomepageSections — see that
+// function's comment, and MIN_HOMEPAGE_ROW_SIZE's own comment in
+// recommendationConfig.js, for the full root-cause story ("some rows show
+// only 1-2 products" was several rows' own internal fallbacks converging
+// on the same thin, overlapping candidate set). Reimplemented here rather
+// than imported from that file on purpose: homepageRecommendationService.js
+// already imports several fetch*Products helpers FROM this file, so
+// importing the other direction would create a circular dependency —
+// and this endpoint is specifically the FALLBACK path, used only when
+// that primary pipeline fails, so it needs to keep working independent
+// of it regardless. Same reasoning already applied to the hotDeals query
+// just below (also duplicated rather than shared, same comment there).
+//
+// `usedProductIds` here is the union of whatever these 6 already-generous
+// (up to `limit`, typically 40) raw lists contain — a deliberately
+// conservative exclusion basis (it may exclude a product no row actually
+// ends up keeping after the frontend's own cross-row dedup), which only
+// means this pass occasionally backfills a little less aggressively than
+// the theoretical maximum, never that it hands out a duplicate.
+async function backfillHomepageRows(sections, usedProductIds) {
+  const reserve = await ProductModel.find({
+    ...AVAILABILITY_FILTER,
+    _id: { $nin: [...usedProductIds] },
+  }).sort({ createdAt: -1 }).limit(HOMEPAGE_BACKFILL_POOL_SIZE).lean();
+
+  let reserveIdx = 0;
+  for (const list of Object.values(sections)) {
+    if (list.length === 0 || list.length >= MIN_HOMEPAGE_ROW_SIZE) continue;
+    while (list.length < MIN_HOMEPAGE_ROW_SIZE && reserveIdx < reserve.length) {
+      const candidate = reserve[reserveIdx++];
+      const id = candidate._id.toString();
+      if (usedProductIds.has(id)) continue;
+      list.push(candidate);
+      usedProductIds.add(id);
+    }
+  }
+
+  return reserve.filter((p) => !usedProductIds.has(p._id.toString()));
+}
+
 export const getHomepageRowsController = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
@@ -335,10 +376,19 @@ export const getHomepageRowsController = async (req, res) => {
       ProductModel.find({ ...AVAILABILITY_FILTER, discount: { $gte: HOT_DEAL_MIN_DISCOUNT } })
         .sort({ discount: -1 }).limit(l).lean(),
     ]);
+
+    // [ADDED] — see backfillHomepageRows above.
+    const sections = { trending, bestSelling, lowSelling, neverSold, allTimeBest, hotDeals };
+    const usedProductIds = new Set();
+    for (const list of Object.values(sections)) {
+      for (const p of list) usedProductIds.add(p._id.toString());
+    }
+    const reservePool = await backfillHomepageRows(sections, usedProductIds);
+
     return res.json({
       success: true,
       error: false,
-      data: { trending, bestSelling, lowSelling, neverSold, allTimeBest, hotDeals },
+      data: { ...sections, reservePool },
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: true, message: err.message });

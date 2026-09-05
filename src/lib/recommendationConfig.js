@@ -44,6 +44,62 @@ export const HOT_DEAL_MIN_DISCOUNT = 15;
 // exception to the otherwise-strict cross-section exclusion rule.
 export const DIVERSITY_EXEMPT_SECTIONS = ["continueShopping"];
 
+// ─── [ADDED] Minimum homepage row size ─────────────────────────────────
+// Not spec-given — a direct, explicit product requirement from real-world
+// use of the build: "every product row must have at least 7 products to
+// display." Root cause of the earlier bug this fixes: several of the
+// "always-on" catalog rows (Trending / Best Selling / Clearance / New
+// Arrivals / All-Time Favourites) each have their OWN internal fallback
+// for when real order/activity history is thin (see analytics.controller.js
+// fetch*Products helpers), and more than one of those fallbacks collapses
+// to the SAME underlying query shape ("newest N published, in-stock
+// products") whenever that happens. Combined with the strict, sequential,
+// page-wide "no duplicate product anywhere on the homepage" rule (the
+// diversity/dedup logic in homepageRecommendationService.js and its
+// frontend mirror in page.jsx — itself a deliberate, previously-requested
+// fix, not something to relax), whichever row is processed first claims
+// the entire overlapping pool and starves every later row drawing from
+// that same near-identical set. That's what a 1-2-product row actually is:
+// not a lack of catalog inventory, but several rows independently reaching
+// for the same thin slice of it.
+//
+// The fix is a backfill/top-up pass, applied AFTER a section's own natural
+// (post-dedup) candidates are decided, never instead of them: any section
+// that has SOME real candidates (>0) but fewer than this minimum is padded
+// up to it using HOMEPAGE_BACKFILL_POOL_SIZE below, drawn from products not
+// already used anywhere else on the page — so the "no duplicates" rule
+// stays fully intact. A section with ZERO real candidates (e.g. a guest
+// with no browsing history yet for a personalized section, or no product
+// currently qualifies for Hot Deals/Flash Sale) is left untouched and
+// stays hidden — that is correct, existing, spec-aligned behaviour, not
+// the bug being fixed here; manufacturing 7 "Recommended For You" items
+// for someone with zero signal would be actively misleading rather than
+// helpful. DIVERSITY_EXEMPT_SECTIONS (continueShopping) is also excluded
+// from backfill for the same reason: that row is literally the contents
+// of the user's own cart, not a recommendation, so padding it with
+// unrelated products would misrepresent what's actually in it.
+//
+// 7 was the number given, not derived from a layout constraint — kept as
+// its own named constant rather than a bare literal so the reasoning above
+// travels with it and a future change is a one-line edit.
+export const MIN_HOMEPAGE_ROW_SIZE = 7;
+
+// How many extra candidate products to draw, in one query, as the shared
+// backfill reserve every under-filled section pulls from. Sized with
+// headroom rather than tightly: worst case is every "always-on" section
+// (5 catalog rows + Hot Deals + Flash Sale = 7 of the 11) needing a full
+// top-up to MIN_HOMEPAGE_ROW_SIZE at once, i.e. up to 7*7=49 products, plus
+// this same pool is also hand-off to the frontend as a second-line reserve
+// (page.jsx tops up further if a homepage campaign removes a product from
+// an already-backfilled row — the backend has no visibility into which
+// campaigns are currently shown on the homepage, only the frontend does).
+// 120 comfortably covers both uses against this project's seeded catalog
+// (100 products) without needing to be re-tuned if the catalog grows a
+// little; it is NOT assumed to exceed the full catalog size, since the
+// query it drives is itself bounded by however many matching products
+// actually exist.
+export const HOMEPAGE_BACKFILL_POOL_SIZE = 120;
+
 // ─── Section 8: Behaviour weights ──────────────────────────────────────
 // Values marked [SPEC] are the exact numbers given in the command prompt
 // (Section 8) — not rounded, not adjusted. Values marked [ADDED] are for

@@ -5205,3 +5205,49 @@ admin controls / recommendation-specific analytics / data-retention
 policy noted back in Phase 1's plan) is real, but this is the
 meaningful, load-bearing core of the system, now live on the homepage
 with a genuine safety net rather than a risky, untested leap.
+
+# SESSION 9 — Homepage minimum-row-size fix ("some rows show only 1-2 products")
+
+Full narrative and exact diffs are in STATUS.md's "Batch 24" entry (this
+file's own README-documented role is the detailed technical log for the
+recommendation system specifically — kept here too since this bug lived
+squarely inside Session 8's own new pipeline). Short version:
+
+Session 8 above shipped the 11-section pipeline "verified only against
+mocked data in this sandbox — never a real database" (own words, Phase
+9-10 summary just above this entry). That caveat turned out to matter:
+against real seed data, several of the "always-on" catalog sections' own
+internal fallbacks (in analytics.controller.js, from Sessions 6-7, reused
+as-is by this pipeline) collapse to near-identical "newest N published"
+queries whenever real order/activity signal is thin — which, on THIS
+seed data specifically, is always true for Trending (zero ActivityLog
+rows were ever seeded) and often true for the others. The strict
+page-wide dedup Session 7 fixed then gives the entire overlapping pool to
+whichever section is processed first, starving every later one drawing
+from the same pool. Not a bug IN the Session 7 dedup fix or the Phase 3-8
+scoring pipeline — both are working exactly as designed — but a missing
+minimum-row guarantee on top of them, which the OLD 5-row homepage had a
+version of and the NEW 11-section one never got.
+
+Fixed with a backfill/top-up pass (recommendationConfig.js's new
+MIN_HOMEPAGE_ROW_SIZE + HOMEPAGE_BACKFILL_POOL_SIZE, applied in
+homepageRecommendationService.js, analytics.controller.js, and a second
+frontend-side pass in page.jsx for the one thing only the frontend can
+see — homepage-campaign exclusion trimming an already-backfilled row back
+down). Genuinely-empty sections and `continueShopping` are deliberately
+never padded — see the config file's own comment for why. Also seeded
+150 realistic ActivityLog rows (seed.js) so Trending has real signal
+instead of always hitting its fallback — secondary, not required for the
+guarantee itself to hold.
+
+Verified the same way Phase 8 above did in the absence of a real
+database: a full tsc syntax sweep (clean, 341 files), a custom
+import-resolution check (clean, 334 files), and the exact backfill
+allocation logic copied into a standalone script and run against
+synthetic data covering the original collision, a campaign trimming an
+already-topped-up row, a genuinely-empty section, the continueShopping
+exemption, and a catalog too small to fully satisfy every row — 15/15
+assertions passing. Still not tested against a real browser + real
+database — that gap is inherited from Session 8, not newly introduced —
+so this is the next thing worth confirming once this build actually runs
+somewhere with a live MongoDB connection.

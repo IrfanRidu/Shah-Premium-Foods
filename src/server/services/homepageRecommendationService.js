@@ -14,7 +14,13 @@ import {
   fetchNeverSoldProducts,
   fetchAllTimeBestSellingProducts,
 } from "../controllers/analytics.controller.js";
-import { AVAILABILITY_FILTER, DIVERSITY_EXEMPT_SECTIONS, HOT_DEAL_MIN_DISCOUNT } from "@/lib/recommendationConfig";
+import {
+  AVAILABILITY_FILTER,
+  DIVERSITY_EXEMPT_SECTIONS,
+  HOT_DEAL_MIN_DISCOUNT,
+  MIN_HOMEPAGE_ROW_SIZE,
+  HOMEPAGE_BACKFILL_POOL_SIZE,
+} from "@/lib/recommendationConfig";
 
 // Session 8, Phase 8 (new feature spec, Section 29 — RECOMMENDATION API).
 // This is the file where every previously-independent, independently
@@ -105,11 +111,68 @@ async function runPersonalizedPipeline({ userId, sessionId, userAffinity, candid
   return products;
 }
 
+// ─── [ADDED] Minimum-row-size backfill ──────────────────────────────────
+// See MIN_HOMEPAGE_ROW_SIZE's own comment in recommendationConfig.js for
+// the full root-cause story. Short version: a section landing on a
+// handful of real candidates (not zero, not a full SECTION_SIZE) is a
+// page-composition side effect — an earlier section in the processing
+// order already claimed the rest of an overlapping candidate pool — not
+// a shortage of catalog inventory. So the fix hands that section a few
+// MORE genuinely-unused products; it never relaxes the "no duplicate
+// product anywhere on the page" rule that produced the collision in the
+// first place (every product handed out here is drawn excluding
+// `usedProductIds`, the exact same running exclusion set every section
+// above already threads through).
+//
+// A section with ZERO real candidates is left exactly as it is — not
+// backfilled. That's correct, existing, spec-aligned behaviour (a guest
+// with no browsing history yet for a personalized section, or nothing
+// currently qualifying for Hot Deals/Flash Sale), not the bug this fixes.
+// Manufacturing 7 "Recommended For You" products for someone with zero
+// signal would be misleading, not helpful — see config file comment.
+// DIVERSITY_EXEMPT_SECTIONS (continueShopping) is skipped for the same
+// "don't misrepresent what this section actually means" reason: it's the
+// literal contents of the user's cart, not a recommendation.
+//
+// Returns whatever's left of the reserve pool afterward, so the caller
+// can hand it to the frontend as `reservePool` — page.jsx runs this exact
+// same top-up idea a second time client-side, because there is exactly
+// one exclusion this function cannot see: which products are currently
+// shown in a homepage campaign. That's decided per-request by the
+// frontend (campaigns flagged `showOnHomepage`), not stored on the
+// product document itself, so it can't be filtered out here.
+async function backfillHomepageSections(sections, usedProductIds) {
+  const reserve = await ProductModel.find({
+    ...AVAILABILITY_FILTER,
+    _id: { $nin: [...usedProductIds] },
+  }).sort({ createdAt: -1 }).limit(HOMEPAGE_BACKFILL_POOL_SIZE).lean();
+
+  let reserveIdx = 0;
+  for (const key of Object.keys(sections)) {
+    if (DIVERSITY_EXEMPT_SECTIONS.includes(key)) continue;
+    const list = sections[key];
+    if (list.length === 0 || list.length >= MIN_HOMEPAGE_ROW_SIZE) continue;
+    while (list.length < MIN_HOMEPAGE_ROW_SIZE && reserveIdx < reserve.length) {
+      const candidate = reserve[reserveIdx++];
+      const id = candidate._id.toString();
+      if (usedProductIds.has(id)) continue; // belt-and-suspenders — $nin above already excludes these
+      list.push(candidate);
+      usedProductIds.add(id);
+    }
+  }
+
+  // Only hand back what's still genuinely unused, so the frontend's own
+  // top-up pass never has to re-check something this pass already placed.
+  return reserve.filter((p) => !usedProductIds.has(p._id.toString()));
+}
+
 /**
  * @param {Object} params
  * @param {string} [params.userId]
  * @param {string} [params.sessionId]
- * @returns {Promise<Object>} the 11-key response shape from spec Section 29.
+ * @returns {Promise<Object>} the 11-key response shape from spec Section 29,
+ *   plus a 12th `reservePool` key ([ADDED], see backfillHomepageSections)
+ *   the frontend uses for its own follow-up top-up pass.
  */
 export async function getHomepageRecommendations({ userId, sessionId } = {}) {
   const usedProductIds = new Set();
@@ -200,5 +263,9 @@ export async function getHomepageRecommendations({ userId, sessionId } = {}) {
   const cartProducts = cartItems.map((item) => item.productId).filter(Boolean);
   sections.continueShopping = applyDiversity(cartProducts, usedProductIds, "continueShopping", SECTION_SIZE);
 
-  return sections;
+  // [ADDED] Every section decided above; now top up anything that's
+  // non-empty but thin (see backfillHomepageSections' own comment).
+  const reservePool = await backfillHomepageSections(sections, usedProductIds);
+
+  return { ...sections, reservePool };
 }

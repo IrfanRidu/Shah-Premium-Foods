@@ -13,6 +13,7 @@ import CampaignModel from "../models/campaign.model.js";
 import DeliveryZoneModel from "../models/deliveryZone.model.js";
 import CouponModel from "../models/coupon.model.js";
 import ProductRequestModel from "../models/productRequest.model.js";
+import ActivityLogModel from "../models/activityLog.model.js";
 import RoleModel from "../models/role.model.js";
 import { ensureSystemRoles } from "../controllers/role.controller.js";
 
@@ -124,6 +125,7 @@ const seedDatabase = async () => {
       DeliveryZoneModel.deleteMany({}),
       CouponModel.deleteMany({}),
       ProductRequestModel.deleteMany({}),
+      ActivityLogModel.deleteMany({}),
       RoleModel.deleteMany({}),
     ]);
 
@@ -294,6 +296,63 @@ const seedDatabase = async () => {
       orderCount++;
     }
 
+    // ---------------- ACTIVITY LOGS (so Trending has real signal) ----------------
+    // [ADDED] — not present before. fetchTrendingProducts() (analytics.
+    // controller.js) needs at least 5 DISTINCT products with a view/
+    // add_to_cart ActivityLogModel entry inside the last 7 days, or it
+    // falls back to a plain "newest N published" query — which is also
+    // what several OTHER rows' own fallbacks collapse to whenever THEIR
+    // real data is thin, which is what was causing homepage rows to show
+    // only 1-2 products (see MIN_HOMEPAGE_ROW_SIZE's comment in
+    // recommendationConfig.js for the full story). This seed never wrote
+    // a single ActivityLogModel row before, so Trending was ALWAYS on
+    // that fallback path against a freshly-seeded database. The
+    // minimum-row backfill fix stands on its own regardless of this
+    // addition — it doesn't matter WHY a section came up thin — so this
+    // isn't required for "every row has at least 7" to hold; it's a
+    // realism improvement so Trending actually reflects *trending*
+    // products out of the box, the same way the order-seeding above
+    // already gives Best Selling/All-Time Favourites real data to work
+    // with instead of leaning on a fallback every time.
+    console.log("Seeding activity logs...");
+    const actionPool = [
+      // Weighted by real-world frequency, not uniform — a view is far
+      // more common than a purchase-adjacent action, same signal-
+      // strength ordering BEHAVIOUR_WEIGHTS (recommendationConfig.js)
+      // already assumes.
+      ...Array(10).fill("view"),
+      ...Array(4).fill("product_click"),
+      ...Array(3).fill("category_view"),
+      ...Array(2).fill("add_to_cart"),
+      ...Array(2).fill("search"),
+      ...Array(1).fill("wishlist_add"),
+      ...Array(1).fill("subcategory_view"),
+    ];
+    let activityCount = 0;
+    for (let i = 0; i < 150; i++) {
+      const product = pick(allProducts);
+      const actionType = pick(actionPool);
+      // Mostly inside Trending's own 7-day window, with a small tail out
+      // to 10 so activity isn't artificially clustered at one instant.
+      const daysAgo = randomPrice(0, 10);
+      const createdAt = new Date(now - daysAgo * DAY - randomPrice(0, DAY));
+      const isGuest = Math.random() < 0.2; // some anonymous/session-only traffic, same mix real usage would have
+
+      const log = await ActivityLogModel.create({
+        userId: isGuest ? null : pick(customerUsers)._id,
+        sessionId: isGuest ? `seed-guest-${i}` : "",
+        productId: product._id,
+        categoryId: product.category?.[0] || null,
+        subCategoryId: product.subCategory?.[0] || null,
+        actionType,
+        searchQuery: actionType === "search" ? pick(product.name.split(" ")) : "",
+      });
+      // Same reason the order loop above patches timestamps directly —
+      // timestamps:true overwrites whatever createdAt was passed to create().
+      await ActivityLogModel.updateOne({ _id: log._id }, { createdAt, updatedAt: createdAt });
+      activityCount++;
+    }
+
     // ---------------- CAMPAIGNS (custom-named promo sections) ----------------
     console.log("Seeding campaigns...");
     const weekendProducts = allProducts.slice(50, 62); // 12 mid-range products
@@ -371,7 +430,7 @@ const seedDatabase = async () => {
     ]);
 
     console.log("\n================ SEED COMPLETE ================");
-    console.log(`Categories: 5 | Sub Categories: 20 | Products: ${allProducts.length} | Orders: ${orderCount}`);
+    console.log(`Categories: 5 | Sub Categories: 20 | Products: ${allProducts.length} | Orders: ${orderCount} | Activity logs: ${activityCount}`);
     console.log("Campaigns: Weekend Mega Sale (12 products) + Eid Special Offers (8 products) | Coupons: WELCOME10, FLAT100, EXPIRED5(expired)");
     console.log("Delivery Zones: Inside Dhaka (৳60, free above ৳1000) + Outside Dhaka (৳120, free above ৳2000)");
     console.log("\nDemo accounts (email / password):");

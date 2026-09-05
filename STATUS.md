@@ -1,5 +1,88 @@
 # Shah Premium Foods — Build Status Tracker
 
+## Batch 24 — Homepage minimum-row-size fix ("some rows show only 1-2 products")
+
+User-reported, from actually using the built site: several homepage
+product rows were showing only 1-2 products instead of a full-looking
+row. Explicit requirement given: every product row must show at least 7
+products (when the catalog can support it).
+
+**Root cause — found by reading the actual code and seed data, not
+guessed.** The homepage (src/app/page.jsx) renders 11 rows via Session
+8's new personalized recommendation pipeline
+(homepageRecommendationService.js), falling back to the older 6-row
+endpoint (getHomepageRowsController, analytics.controller.js) if that
+fails. Several of the "always-on" catalog rows — Trending / Best Selling
+/ Clearance / New Arrivals / All-Time Favourites — each carry their OWN
+internal fallback for when real order/activity signal is thin (see each
+fetch*Products helper in analytics.controller.js), and more than one of
+those fallbacks collapses to the exact same query shape: "newest N
+published, in-stock products." The seed data (seed.js) made this the
+*common* case, not an edge case: it never wrote a single ActivityLog row,
+so Trending was ALWAYS on its fallback; order history concentrated
+heavily on one fixed 25-product slice, leaving other fallbacks thin too.
+
+Because the page also enforces a hard, deliberate, previously-user-
+requested rule — "no duplicate product anywhere on the homepage" — via a
+strict, sequential, page-wide dedup (frontend `dedup()` in page.jsx,
+mirrored server-side by `applyDiversity()` in
+homepageRecommendationService.js), whichever row processes FIRST claims
+the entire overlapping candidate pool, and every later row drawing from
+that same near-identical pool is left with almost nothing. That is what a
+1-2-product row actually was: not a shortage of catalog inventory (100
+products were seeded), but several rows independently reaching for the
+same thin slice of it. A real architecture gap left over from when
+Session 8's new 11-section pipeline replaced the old, simpler homepage —
+the old system's minimum-row concept never got carried forward to the new
+one.
+
+**Fix — a backfill/top-up pass, layered on top of the existing logic,
+never instead of it:**
+- `src/lib/recommendationConfig.js` — new `MIN_HOMEPAGE_ROW_SIZE` (7) and
+  `HOMEPAGE_BACKFILL_POOL_SIZE` (120) constants, one central place per
+  this file's own established convention, with the full root-cause
+  reasoning recorded alongside them.
+- `homepageRecommendationService.js` — after all 11 sections are decided,
+  a new `backfillHomepageSections()` tops up any section that is
+  non-empty but under the minimum, drawing only from products not already
+  used anywhere on the page (so the "no duplicates" rule stays fully
+  intact). A section that is genuinely, correctly EMPTY (a guest with no
+  browsing history yet; nothing currently qualifies for Hot Deals/Flash
+  Sale) is left untouched — that's existing, correct, spec-aligned
+  behaviour, not this bug. `continueShopping` is also never padded — it's
+  literal cart contents, not a recommendation. Returns the leftover
+  reserve as a new `reservePool` field for the frontend's own pass below.
+- `analytics.controller.js` (`getHomepageRowsController`, the fallback
+  path) — the same backfill concept, reimplemented locally rather than
+  imported (importing from homepageRecommendationService.js would create
+  a circular dependency, since that file already imports several
+  fetch*Products helpers from this one — same reasoning already used for
+  duplicating the hotDeals query between the two files).
+- `page.jsx` — one more top-up pass after the existing per-row `dedup()`,
+  pulling from the new `reservePool`. This exists for the one thing only
+  the frontend can see: `usedProductIds` (homepage-campaign exclusion)
+  can trim an already-backfilled row back down, since neither backend
+  path knows which campaigns are currently flagged to show on a given
+  homepage load.
+- `seed.js` (secondary, not required for the fix itself) — now seeds 150
+  realistic ActivityLog rows so Trending has real signal out of the box
+  instead of always using its fallback, the same way the existing order
+  seeding already gives Best Selling/All-Time Favourites real data.
+  ActivityLogModel added to the delete-on-reseed list too.
+
+**Verification (no live database available in this sandbox — same
+constraint prior sessions worked under, same tooling used to compensate):**
+tsc syntax sweep (allowJs, checkJs:false, jsx:"preserve") across all 341
+project files, clean both before and after this change; a custom
+import-resolution script confirming every `@/` and relative import in all
+334 src files still resolves to a real file/export; and the exact
+backfill/top-up allocation logic copied verbatim into a standalone script
+and run against synthetic adversarial data — the original collision
+scenario, a campaign trimming an already-backfilled row back down, a
+genuinely-empty section, the continueShopping exemption, and a catalog
+too small to fully satisfy every row — all 15 assertions passing,
+including "no duplicate product across any section" in every scenario.
+
 ## Batch 23 — Demo Admin role, dropdown/sidebar overhaul, Wishlist, Employee sub-types, profile consolidation
 
 Full session working from a detailed 3-part spec (roles incl. a simulated

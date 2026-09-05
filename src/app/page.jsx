@@ -13,6 +13,7 @@ import { validURLConvert } from "@/lib/utils";
 import Axios from "@/lib/axios";
 import api from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
+import { MIN_HOMEPAGE_ROW_SIZE } from "@/lib/recommendationConfig";
 import { FaListUl, FaChevronDown, FaChevronUp, FaShoppingBasket } from "react-icons/fa";
 
 // Product row section.
@@ -240,6 +241,14 @@ export default function HomePage() {
     for (const key of Object.keys(EMPTY_SECTIONS)) init[key] = { data: [], loading: true };
     return init;
   });
+  // [ADDED] Backend-supplied leftover candidate pool (see
+  // backfillHomepageSections/backfillHomepageRows on the server, and
+  // MIN_HOMEPAGE_ROW_SIZE's own comment in recommendationConfig.js) used
+  // below for this component's OWN top-up pass — the one exclusion only
+  // the frontend can see is which products are in a currently-shown
+  // homepage campaign (`usedProductIds`, computed further down), so the
+  // backend's own backfill can't fully guarantee 7 on its own.
+  const [reservePool, setReservePool] = useState([]);
 
   // Spec Section 36 (error handling) — this exact fallback list ("If the
   // recommendation API fails, fallback to: Trending, Best Selling, New
@@ -264,6 +273,7 @@ export default function HomePage() {
         const next = {};
         for (const key of Object.keys(EMPTY_SECTIONS)) next[key] = { data: d[key] || [], loading: false };
         setSections(next);
+        setReservePool(d.reservePool || []);
       } catch {
         try {
           const r2 = await Axios({ ...api.getHomepageRows, params: { limit: 40 } });
@@ -283,6 +293,7 @@ export default function HomePage() {
             basedOnSearch: { data: [], loading: false }, flashSale: { data: [], loading: false },
             continueShopping: { data: [], loading: false },
           });
+          setReservePool(d2.reservePool || []);
         } catch {
           // Both the new pipeline AND the old, previously-rock-solid
           // fallback failed (e.g. a genuine DB outage) — clear every
@@ -292,6 +303,7 @@ export default function HomePage() {
           const cleared = {};
           for (const key of Object.keys(EMPTY_SECTIONS)) cleared[key] = { data: [], loading: false };
           setSections(cleared);
+          setReservePool([]);
         }
       }
     })();
@@ -390,6 +402,39 @@ export default function HomePage() {
     products: dedup(r.section.data, seenInRows, r.id === "continueShopping"),
     loading: r.section.loading,
   }));
+
+  // [ADDED] User-reported: "some product rows have only one or two
+  // products — every row must have at least 7." Root cause and the main
+  // fix are server-side (see MIN_HOMEPAGE_ROW_SIZE's comment in
+  // recommendationConfig.js) — both API paths already backfill a thin
+  // section before this data ever reaches the browser. This pass exists
+  // for the one thing only the frontend can see: `usedProductIds` right
+  // above (homepage-campaign exclusion) can still trim an
+  // already-backfilled row back down, since neither backend path knows
+  // which campaigns are currently flagged to show on THIS homepage load.
+  // Draws only from `reservePool` — the leftover the backend already
+  // excluded every shown product from — and still runs every candidate
+  // through the exact same two exclusion checks `dedup` above uses, so
+  // this can't introduce a duplicate any more than dedup itself can.
+  // A row that is genuinely empty (0 products) is left alone: that's
+  // correct, existing behaviour (e.g. a guest with no browsing history
+  // for a personalized section), not the bug being fixed. continueShopping
+  // is skipped for the same reason `dedup` exempts it differently — it's
+  // literal cart contents, not a recommendation, so padding it with
+  // unrelated products would misrepresent what's actually in the cart.
+  let reserveIdx = 0;
+  for (const row of rows) {
+    if (row.id === "continueShopping") continue;
+    if (row.products.length === 0 || row.products.length >= MIN_HOMEPAGE_ROW_SIZE) continue;
+    while (row.products.length < MIN_HOMEPAGE_ROW_SIZE && reserveIdx < reservePool.length) {
+      const candidate = reservePool[reserveIdx];
+      reserveIdx++;
+      const id = candidate?._id?.toString();
+      if (!id || seenInRows.has(id) || usedProductIds.has(id)) continue;
+      row.products.push(candidate);
+      seenInRows.add(id);
+    }
+  }
 
   const homepageCampaigns = useMemo(
     () => campaigns.filter((c) => c.showOnHomepage).sort((a, b) => a.displayOrder - b.displayOrder),
